@@ -22,7 +22,7 @@ DROP TABLE IF EXISTS `t_db`;
 CREATE TABLE `t_db` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(32) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '数据库实例名称',
-  `host` varchar(50) COLLATE utf8mb4_bin NOT NULL,
+  `host` varchar(200) COLLATE utf8mb4_bin NOT NULL,
   `port` int(8) NOT NULL,
   `username` varchar(255) COLLATE utf8mb4_bin NOT NULL,
   `password` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL,
@@ -110,7 +110,7 @@ CREATE TABLE `t_machine` (
   `port` int(12) NOT NULL,
   `username` varchar(12) COLLATE utf8mb4_bin NOT NULL,
   `auth_method` tinyint(2) NULL DEFAULT NULL COMMENT '1.密码登录2.publickey登录',
-  `password` varchar(3200) COLLATE utf8mb4_bin DEFAULT NULL,
+  `password` varchar(6400) COLLATE utf8mb4_bin DEFAULT NULL,
   `enable_ssh_tunnel` tinyint(2) DEFAULT NULL COMMENT '是否启用ssh隧道',
   `ssh_tunnel_machine_id` bigint(20) DEFAULT NULL COMMENT 'ssh隧道的机器id',
   `enable_recorder` tinyint(2) DEFAULT NULL COMMENT '是否启用终端回放记录',
@@ -650,7 +650,7 @@ INSERT INTO `t_sys_role_resource`(`id`, `role_id`, `resource_id`, `creator_id`, 
 COMMIT;
 
 -- ----------------------------
--- 表结构: t_sys_log 
+-- 表结构: t_sys_log
 -- ----------------------------
 DROP TABLE IF EXISTS `t_sys_log`;
 CREATE TABLE `t_sys_log` (

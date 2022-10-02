@@ -13,6 +13,9 @@
 
 *.lock
 *.sum
+.idea*
 
 */node_modules/
 **/vendor/
+mysql*
+deploy*

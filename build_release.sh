@@ -25,7 +25,7 @@ function echo_yellow() {
 }
 
 function buildWeb() {
-    cd ${web_folder}
+    cd ${web_folder} || exit
     copy2Server=$1
 
     echo_yellow "-------------------打包前端开始-------------------"
@@ -38,7 +38,7 @@ function buildWeb() {
 }
 
 function build() {
-    cd ${project_path}
+    cd ${project_path} || exit
 
     # 打包产物的输出目录
     toFolder=$1
@@ -46,9 +46,11 @@ function build() {
     arch=$3
     copyStatic=$4
 
+    echo $copyStatic
+
     echo_yellow "-------------------${os}-${arch}打包构建开始-------------------"
 
-    cd ${server_folder}
+    cd ${server_folder} || exit
     echo_green "打包构建可执行文件..."
 
     execFileName=${exec_file_name}
@@ -102,18 +104,22 @@ function buildMac() {
 function runBuild() {
     # 构建结果的目的路径
     read -p "请输入构建产物输出目录: " toPath
+    if [ -z ${toPath} ]; then
+      toPath="./deploy"
+      mkdir ${toPath}
+    fi
+    echo "默认当前项目下输出目录: ${toPath}"
     if [ ! -d ${toPath} ] ; then
         echo_red "构建产物输出目录不存在!"
         exit;
     fi
     # 进入目标路径,并赋值全路径
-    cd ${toPath}
+    cd ${toPath} || exit
     toPath=`pwd`
 
     read -p "是否构建前端[0|其他->否 1->是 2->构建并拷贝至server/static/static]: " runBuildWeb
     read -p "请选择构建版本[0|其他->全部 1->linux-amd64 2->linux-arm64 3->windows 4->mac]: " buildType
-    
-    
+
     if [ "${runBuildWeb}" == "1" ] || [ "${runBuildWeb}" == "2" ] ; then
         buildWeb ${runBuildWeb}
     fi
