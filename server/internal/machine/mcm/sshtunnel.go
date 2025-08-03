@@ -1,58 +1,33 @@
 package mcm
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mayfly-go/pkg/logx"
-	"mayfly-go/pkg/scheduler"
+	"mayfly-go/pkg/pool"
 	"mayfly-go/pkg/utils/netx"
 	"net"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
 
+// type SshTunnelAble interface {
+// 	GetSshTunnelMachineId() int
+// }
+
 var (
-	sshTunnelMachines map[int]*SshTunnelMachine = make(map[int]*SshTunnelMachine)
-
-	mutex sync.Mutex
-
 	// 所有检测ssh隧道机器是否被使用的函数
 	checkSshTunnelMachineHasUseFuncs []CheckSshTunnelMachineHasUseFunc
 
-	// 是否开启检查ssh隧道机器是否被使用，只有使用到了隧道机器才启用
-	startCheckSshTunnelHasUse bool = false
+	tunnelPoolGroup = pool.NewPoolGroup[*SshTunnelMachine]()
 )
 
 // 检查ssh隧道机器是否有被使用
 type CheckSshTunnelMachineHasUseFunc func(int) bool
-
-func startCheckUse() {
-	logx.Info("start periodically checking if the ssh tunnel machine is still in use")
-	// 每十分钟检查一次隧道机器是否还有被使用
-	scheduler.AddFun("@every 10m", func() {
-		if !mutex.TryLock() {
-			return
-		}
-		defer mutex.Unlock()
-		// 遍历隧道机器，都未被使用将会被关闭
-		for mid, sshTunnelMachine := range sshTunnelMachines {
-			logx.Debugf("periodically check if the ssh tunnel machine [%d] is still in use...", mid)
-			hasUse := false
-			for _, checkUseFunc := range checkSshTunnelMachineHasUseFuncs {
-				// 如果一个在使用则返回不关闭，不继续后续检查
-				if checkUseFunc(mid) {
-					hasUse = true
-					break
-				}
-			}
-			if !hasUse {
-				// 都未被使用，则关闭
-				sshTunnelMachine.Close()
-			}
-		}
-	})
-}
 
 // 添加ssh隧道机器检测是否使用函数
 func AddCheckSshTunnelMachineUseFunc(checkFunc CheckSshTunnelMachineHasUseFunc) {
@@ -64,10 +39,40 @@ func AddCheckSshTunnelMachineUseFunc(checkFunc CheckSshTunnelMachineHasUseFunc) 
 
 // ssh隧道机器
 type SshTunnelMachine struct {
+	mi        *MachineInfo
 	machineId int // 隧道机器id
 	SshClient *ssh.Client
 	mutex     sync.Mutex
 	tunnels   map[string]*Tunnel // 隧道id -> 隧道
+}
+
+/******************* pool.Conn impl *******************/
+
+func (stm *SshTunnelMachine) Ping() error {
+	_, _, err := stm.SshClient.Conn.SendRequest("ping", true, nil)
+	return err
+}
+
+func (stm *SshTunnelMachine) Close() error {
+	stm.mutex.Lock()
+	defer stm.mutex.Unlock()
+
+	for id, tunnel := range stm.tunnels {
+		if tunnel != nil {
+			tunnel.Close()
+			delete(stm.tunnels, id)
+		}
+	}
+
+	if stm.SshClient != nil {
+		logx.Infof("ssh tunnel machine [%d] is not in use, close tunnel...", stm.machineId)
+		err := stm.SshClient.Close()
+		if err != nil {
+			logx.Errorf("error in closing ssh tunnel machine [%d]: %s", stm.machineId, err.Error())
+		}
+	}
+
+	return nil
 }
 
 func (stm *SshTunnelMachine) OpenSshTunnel(id string, ip string, port int) (exposedIp string, exposedPort int, err error) {
@@ -77,6 +82,7 @@ func (stm *SshTunnelMachine) OpenSshTunnel(id string, ip string, port int) (expo
 	tunnel := stm.tunnels[id]
 	// 已存在该id隧道，则直接返回
 	if tunnel != nil {
+		// FIXME 后期改成池化连接，定时60秒检查连接可用性
 		return tunnel.localHost, tunnel.localPort, nil
 	}
 
@@ -85,7 +91,7 @@ func (stm *SshTunnelMachine) OpenSshTunnel(id string, ip string, port int) (expo
 		return "", 0, err
 	}
 
-	localHost := "0.0.0.0"
+	localHost := "127.0.0.1"
 	localAddr := fmt.Sprintf("%s:%d", localHost, localPort)
 	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {
@@ -104,77 +110,64 @@ func (stm *SshTunnelMachine) OpenSshTunnel(id string, ip string, port int) (expo
 	go tunnel.Open(stm.SshClient)
 	stm.tunnels[tunnel.id] = tunnel
 
-	return tunnel.localHost, tunnel.localPort, nil
+	return localHost, localPort, nil
 }
 
-func (st *SshTunnelMachine) GetDialConn(network string, addr string) (net.Conn, error) {
-	st.mutex.Lock()
-	defer st.mutex.Unlock()
-	return st.SshClient.Dial(network, addr)
-}
-
-func (stm *SshTunnelMachine) Close() {
+func (stm *SshTunnelMachine) GetDialConn(network string, addr string) (net.Conn, error) {
 	stm.mutex.Lock()
 	defer stm.mutex.Unlock()
-
-	for id, tunnel := range stm.tunnels {
-		if tunnel != nil {
-			tunnel.Close()
-			delete(stm.tunnels, id)
-		}
-	}
-
-	if stm.SshClient != nil {
-		logx.Infof("ssh tunnel machine [%d] is not in use, close tunnel...", stm.machineId)
-		err := stm.SshClient.Close()
-		if err != nil {
-			logx.Errorf("error in closing ssh tunnel machine [%d]: %s", stm.machineId, err.Error())
-		}
-	}
-	delete(sshTunnelMachines, stm.machineId)
+	return stm.SshClient.Dial(network, addr)
 }
 
 // 获取ssh隧道机器，方便统一管理充当ssh隧道的机器，避免创建多个ssh client
-func GetSshTunnelMachine(machineId int, getMachine func(uint64) (*MachineInfo, error)) (*SshTunnelMachine, error) {
-	mutex.Lock()
-	defer mutex.Unlock()
+func GetSshTunnelMachine(ctx context.Context, machineId int, getMachine func(uint64) (*MachineInfo, error)) (*SshTunnelMachine, error) {
+	pool, err := tunnelPoolGroup.GetCachePool(fmt.Sprintf("machine-tunnel-%d", machineId), func() (*SshTunnelMachine, error) {
+		mi, err := getMachine(uint64(machineId))
+		if err != nil {
+			return nil, err
+		}
+		if mi == nil {
+			return nil, errors.New("error get machine info")
+		}
+		sshClient, err := GetSshClient(mi, nil)
+		if err != nil {
+			return nil, err
+		}
+		stm := &SshTunnelMachine{SshClient: sshClient, machineId: machineId, tunnels: map[string]*Tunnel{}, mi: mi}
+		logx.Infof("connect to the ssh tunnel machine for the first time[%d][%s:%d]", machineId, mi.Ip, mi.Port)
 
-	sshTunnelMachine := sshTunnelMachines[machineId]
-	if sshTunnelMachine != nil {
-		return sshTunnelMachine, nil
-	}
+		return stm, err
+	}, pool.WithIdleTimeout[*SshTunnelMachine](50*time.Minute), pool.WithOnConnClose(func(conn *SshTunnelMachine) error {
+		mid := int(conn.mi.Id)
+		logx.Debugf("periodically check if the ssh tunnel machine [%d] is still in use...", mid)
 
-	me, err := getMachine(uint64(machineId))
+		for _, checkUseFunc := range checkSshTunnelMachineHasUseFuncs {
+			// 如果一个在使用则返回不关闭，不继续后续检查
+			if checkUseFunc(mid) {
+				return fmt.Errorf("ssh tunnel machine [%s] is still in use", conn.mi.Name)
+			}
+		}
+
+		return nil
+	}))
+
 	if err != nil {
 		return nil, err
 	}
-
-	sshClient, err := GetSshClient(me, nil)
-	if err != nil {
-		return nil, err
-	}
-	sshTunnelMachine = &SshTunnelMachine{SshClient: sshClient, machineId: machineId, tunnels: map[string]*Tunnel{}}
-
-	logx.Infof("connect to the ssh tunnel machine for the first time[%d][%s:%d]", machineId, me.Ip, me.Port)
-	sshTunnelMachines[machineId] = sshTunnelMachine
-
-	// 如果实用了隧道机器且还没开始定时检查是否还被实用，则执行定时任务检测隧道是否还被使用
-	if !startCheckSshTunnelHasUse {
-		startCheckUse()
-		startCheckSshTunnelHasUse = true
-	}
-	return sshTunnelMachine, nil
+	// 从连接池中获取一个可用的连接
+	return pool.Get(ctx)
 }
 
 // 关闭ssh隧道机器的指定隧道
-func CloseSshTunnelMachine(machineId int, tunnelId string) {
-	sshTunnelMachine := sshTunnelMachines[machineId]
-	if sshTunnelMachine == nil {
+func CloseSshTunnelMachine(machineId uint64, tunnelId string) {
+	sshTunnelMachinePool, ok := tunnelPoolGroup.Get(fmt.Sprintf("machine-tunnel-%d", machineId))
+	if !ok {
 		return
 	}
-
-	sshTunnelMachine.mutex.Lock()
-	defer sshTunnelMachine.mutex.Unlock()
+	sshTunnelMachine, err := sshTunnelMachinePool.Get(context.Background())
+	if err != nil {
+		return
+	}
 	t := sshTunnelMachine.tunnels[tunnelId]
 	if t != nil {
 		t.Close()

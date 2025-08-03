@@ -20,8 +20,8 @@ import (
 	"mayfly-go/pkg/utils/stringx"
 	"strings"
 
-	"github.com/may-fly/cast"
 	"github.com/redis/go-redis/v9"
+	"github.com/spf13/cast"
 )
 
 type Redis struct {
@@ -60,7 +60,7 @@ func (rs *Redis) ReqConfs() *req.Confs {
 }
 
 func (r *Redis) RedisList(rc *req.Ctx) {
-	queryCond, page := req.BindQueryAndPage[*entity.RedisQuery](rc, new(entity.RedisQuery))
+	queryCond := req.BindQuery[*entity.RedisQuery](rc)
 
 	// 不存在可访问标签id，即没有可操作数据
 	tags := r.tagApp.GetAccountTags(rc.GetLoginAccount().Id, &tagentity.TagTreeQuery{
@@ -68,26 +68,26 @@ func (r *Redis) RedisList(rc *req.Ctx) {
 		CodePathLikes: collx.AsArray(queryCond.TagPath),
 	})
 	if len(tags) == 0 {
-		rc.ResData = model.EmptyPageResult[any]()
+		rc.ResData = model.NewEmptyPageResult[any]()
 		return
 	}
 	queryCond.Codes = tags.GetCodes()
 
-	var redisvos []*vo.Redis
-	res, err := r.redisApp.GetPageList(queryCond, page, &redisvos)
+	res, err := r.redisApp.GetPageList(queryCond)
 	biz.ErrIsNil(err)
+	resVo := model.PageResultConv[*entity.Redis, *vo.Redis](res)
+	redisvos := resVo.List
 
 	// 填充标签信息
 	r.tagApp.FillTagInfo(tagentity.TagType(consts.ResourceTypeRedis), collx.ArrayMap(redisvos, func(rvo *vo.Redis) tagentity.ITagResource {
 		return rvo
 	})...)
 
-	rc.ResData = res
+	rc.ResData = resVo
 }
 
 func (r *Redis) TestConn(rc *req.Ctx) {
-	form := &form.Redis{}
-	redis := req.BindJsonAndCopyTo[*entity.Redis](rc, form, new(entity.Redis))
+	form, redis := req.BindJsonAndCopyTo[*form.Redis, *entity.Redis](rc)
 
 	authCert := &tagentity.ResourceAuthCert{
 		Username:       form.Username,
@@ -109,8 +109,7 @@ func (r *Redis) TestConn(rc *req.Ctx) {
 }
 
 func (r *Redis) Save(rc *req.Ctx) {
-	form := &form.Redis{}
-	redis := req.BindJsonAndCopyTo[*entity.Redis](rc, form, new(entity.Redis))
+	form, redis := req.BindJsonAndCopyTo[*form.Redis, *entity.Redis](rc)
 
 	redisParam := &dto.SaveRedis{
 		Redis:        redis,
@@ -149,7 +148,7 @@ func (r *Redis) DeleteRedis(rc *req.Ctx) {
 }
 
 func (r *Redis) RedisInfo(rc *req.Ctx) {
-	ri, err := r.redisApp.GetRedisConn(uint64(rc.PathParamInt("id")), 0)
+	ri, err := r.redisApp.GetRedisConn(rc.MetaCtx, uint64(rc.PathParamInt("id")), 0)
 	biz.ErrIsNil(err)
 
 	section := rc.Query("section")
@@ -226,8 +225,9 @@ func (r *Redis) RedisInfo(rc *req.Ctx) {
 }
 
 func (r *Redis) ClusterInfo(rc *req.Ctx) {
-	ri, err := r.redisApp.GetRedisConn(uint64(rc.PathParamInt("id")), 0)
+	ri, err := r.redisApp.GetRedisConn(rc.MetaCtx, uint64(rc.PathParamInt("id")), 0)
 	biz.ErrIsNil(err)
+
 	biz.IsEquals(ri.Info.Mode, rdm.ClusterMode, "non-cluster mode")
 	info, _ := ri.ClusterCli.ClusterInfo(context.Background()).Result()
 	nodesStr, _ := ri.ClusterCli.ClusterNodes(context.Background()).Result()
@@ -277,8 +277,10 @@ func (r *Redis) checkKeyAndGetRedisConn(rc *req.Ctx) (*rdm.RedisConn, string) {
 }
 
 func (r *Redis) getRedisConn(rc *req.Ctx) *rdm.RedisConn {
-	ri, err := r.redisApp.GetRedisConn(getIdAndDbNum(rc))
+	id, db := getIdAndDbNum(rc)
+	ri, err := r.redisApp.GetRedisConn(rc.MetaCtx, id, db)
 	biz.ErrIsNil(err)
+
 	biz.ErrIsNilAppendErr(r.tagApp.CanAccess(rc.GetLoginAccount().Id, ri.Info.CodePath...), "%s")
 	return ri
 }

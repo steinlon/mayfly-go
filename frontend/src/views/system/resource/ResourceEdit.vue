@@ -1,7 +1,7 @@
 <template>
     <div>
         <el-dialog :title="title" :destroy-on-close="true" v-model="visible" width="800px">
-            <el-form :model="form" :inline="true" ref="menuForm" :rules="rules" label-width="auto">
+            <el-form :model="form" :inline="true" ref="menuFormRef" :rules="rules" label-width="auto">
                 <el-row :gutter="35">
                     <el-col :xs="24" :sm="12" :md="12" :lg="12" :xl="12">
                         <el-form-item class="!w-full" prop="type" :label="$t('common.type')" required>
@@ -34,16 +34,6 @@
                         </FormItemTooltip>
                     </el-col>
                     <el-col :xs="24" :sm="12" :md="12" :lg="12" :xl="12" v-if="form.type === menuTypeValue">
-                        <FormItemTooltip
-                            class="!w-full"
-                            :label="$t('system.menu.routerName')"
-                            prop="meta.component"
-                            :tooltip="$t('system.menu.componentPathTips')"
-                        >
-                            <el-input v-model.trim="form.meta.component"></el-input>
-                        </FormItemTooltip>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="12" :lg="12" :xl="12" v-if="form.type === menuTypeValue">
                         <FormItemTooltip class="!w-full" :label="$t('system.menu.isCache')" prop="meta.isKeepAlive" :tooltip="$t('system.menu.isCacheTips')">
                             <el-select v-model="form.meta.isKeepAlive" class="!w-full">
                                 <el-option v-for="item in trueFalseOption" :key="item.value" :label="item.label" :value="item.value"> </el-option>
@@ -71,10 +61,10 @@
                             prop="meta.linkType"
                             :tooltip="$t('system.menu.externalLinkTips')"
                         >
-                            <el-select class="!w-full" @change="changeLinkType" v-model="form.meta.linkType">
+                            <el-select class="!w-full" @change="onChangeLinkType" v-model="form.meta.linkType">
                                 <el-option :key="0" :label="$t('system.menu.no')" :value="0"> </el-option>
-                                <el-option :key="1" :label="$t('system.menu.inline')" :value="1"> </el-option>
-                                <el-option :key="2" :label="$t('system.menu.externalLink')" :value="2"> </el-option>
+                                <el-option :key="1" :label="$t('system.menu.inline')" :value="LinkTypeEnum.Iframes.value"> </el-option>
+                                <el-option :key="2" :label="$t('system.menu.externalLink')" :value="LinkTypeEnum.Link.value"> </el-option>
                             </el-select>
                         </FormItemTooltip>
                     </el-col>
@@ -87,17 +77,15 @@
             </el-form>
 
             <template #footer>
-                <div>
-                    <el-button @click="cancel()">{{ $t('common.cancel') }}</el-button>
-                    <el-button type="primary" :loading="saveBtnLoading" @click="btnOk">{{ $t('common.confirm') }}</el-button>
-                </div>
+                <el-button @click="onCancel()">{{ $t('common.cancel') }}</el-button>
+                <el-button type="primary" :loading="saveBtnLoading" @click="onConfirm">{{ $t('common.confirm') }}</el-button>
             </template>
         </el-dialog>
     </div>
 </template>
 
 <script lang="ts" setup>
-import { ref, toRefs, reactive, watchEffect } from 'vue';
+import { toRefs, reactive, watchEffect, useTemplateRef, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { resourceApi } from '../api';
 import { ResourceTypeEnum } from '../enums';
@@ -107,6 +95,8 @@ import { useI18n } from 'vue-i18n';
 import EnumSelect from '@/components/enumselect/EnumSelect.vue';
 import FormItemTooltip from '@/components/form/FormItemTooltip.vue';
 import { Rules } from '@/common/rule';
+import { useI18nFormValidate } from '@/hooks/useI18n';
+import { LinkTypeEnum } from '@/common/commonEnum';
 
 const { t } = useI18n();
 
@@ -127,7 +117,7 @@ const visible = defineModel<boolean>('visible', { default: false });
 //定义事件
 const emit = defineEmits(['cancel', 'val-change']);
 
-const menuForm: any = ref(null);
+const menuFormRef: any = useTemplateRef('menuFormRef');
 
 const menuTypeValue = ResourceTypeEnum.Menu.value;
 
@@ -170,7 +160,6 @@ const state = reactive({
             routeName: '',
             icon: '',
             redirect: '',
-            component: '',
             isKeepAlive: true,
             isHide: false,
             isAffix: false,
@@ -185,7 +174,7 @@ const { form, submitForm } = toRefs(state);
 
 const { isFetching: saveBtnLoading, execute: saveResouceExec } = resourceApi.save.useApi(submitForm);
 
-watchEffect(() => {
+watch(visible, () => {
     if (!visible.value) {
         return;
     }
@@ -208,17 +197,10 @@ watchEffect(() => {
 });
 
 // 改变外链类型
-const changeLinkType = () => {
-    state.form.meta.component = '';
-};
+const onChangeLinkType = (linkType: number) => {};
 
-const btnOk = async () => {
-    try {
-        await menuForm.value.validate();
-    } catch (e: any) {
-        ElMessage.error(t('common.formValidationError'));
-        return false;
-    }
+const onConfirm = async () => {
+    await useI18nFormValidate(menuFormRef);
 
     const submitForm = { ...state.form };
     if (submitForm.type == 1) {
@@ -233,7 +215,7 @@ const btnOk = async () => {
 
     emit('val-change', submitForm);
     ElMessage.success(t('common.saveSuccess'));
-    cancel();
+    onCancel();
 };
 
 const parseMenuMeta = (meta: any) => {
@@ -270,7 +252,7 @@ const parseMenuMeta = (meta: any) => {
     return metaForm;
 };
 
-const cancel = () => {
+const onCancel = () => {
     visible.value = false;
     emit('cancel');
 };

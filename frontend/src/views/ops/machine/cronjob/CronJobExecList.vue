@@ -9,7 +9,7 @@
             :show-close="true"
             :destroy-on-close="true"
             width="65%"
-            body-class="h-200"
+            body-class="h-[65vh]"
         >
             <page-table
                 ref="pageTableRef"
@@ -34,7 +34,7 @@ import { cronJobApi } from '../api';
 import PageTable from '@/components/pagetable/PageTable.vue';
 import { TableColumn } from '@/components/pagetable';
 import { CronJobExecStatusEnum } from '../enums';
-import { SearchItem } from '@/components/SearchForm';
+import { SearchItem } from '@/components/pagetable/SearchForm';
 import MachineDetail from '../component/MachineDetail.vue';
 
 const props = defineProps({

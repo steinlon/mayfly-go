@@ -8,11 +8,12 @@ import (
 	"mayfly-go/internal/db/imsg"
 	"mayfly-go/internal/pkg/utils"
 	"mayfly-go/pkg/biz"
+	"mayfly-go/pkg/model"
 	"mayfly-go/pkg/req"
 	"mayfly-go/pkg/utils/stringx"
 	"strings"
 
-	"github.com/may-fly/cast"
+	"github.com/spf13/cast"
 )
 
 type DataSyncTask struct {
@@ -49,22 +50,21 @@ func (d *DataSyncTask) ReqConfs() *req.Confs {
 }
 
 func (d *DataSyncTask) Tasks(rc *req.Ctx) {
-	queryCond, page := req.BindQueryAndPage[*entity.DataSyncTaskQuery](rc, new(entity.DataSyncTaskQuery))
-	res, err := d.dataSyncTaskApp.GetPageList(queryCond, page, new([]vo.DataSyncTaskListVO))
+	queryCond := req.BindQuery[*entity.DataSyncTaskQuery](rc)
+	res, err := d.dataSyncTaskApp.GetPageList(queryCond)
 	biz.ErrIsNil(err)
-	rc.ResData = res
+	rc.ResData = model.PageResultConv[*entity.DataSyncTask, *vo.DataSyncTaskListVO](res)
 }
 
 func (d *DataSyncTask) Logs(rc *req.Ctx) {
-	queryCond, page := req.BindQueryAndPage[*entity.DataSyncLogQuery](rc, new(entity.DataSyncLogQuery))
-	res, err := d.dataSyncTaskApp.GetTaskLogList(queryCond, page, new([]vo.DataSyncLogListVO))
+	queryCond := req.BindQuery[*entity.DataSyncLogQuery](rc)
+	res, err := d.dataSyncTaskApp.GetTaskLogList(queryCond)
 	biz.ErrIsNil(err)
-	rc.ResData = res
+	rc.ResData = model.PageResultConv[*entity.DataSyncLog, *vo.DataSyncLogListVO](res)
 }
 
 func (d *DataSyncTask) SaveTask(rc *req.Ctx) {
-	form := &form.DataSyncTaskForm{}
-	task := req.BindJsonAndCopyTo[*entity.DataSyncTask](rc, form, new(entity.DataSyncTask))
+	form, task := req.BindJsonAndCopyTo[*form.DataSyncTaskForm, *entity.DataSyncTask](rc)
 
 	// 解码base64 sql
 	sqlStr, err := utils.AesDecryptByLa(task.DataSql, rc.GetLoginAccount())
@@ -80,33 +80,26 @@ func (d *DataSyncTask) SaveTask(rc *req.Ctx) {
 func (d *DataSyncTask) DeleteTask(rc *req.Ctx) {
 	taskId := rc.PathParam("taskId")
 	rc.ReqParam = taskId
-	ids := strings.Split(taskId, ",")
 
-	for _, v := range ids {
+	for _, v := range strings.Split(taskId, ",") {
 		biz.ErrIsNil(d.dataSyncTaskApp.Delete(rc.MetaCtx, cast.ToUint64(v)))
 	}
 }
 
 func (d *DataSyncTask) ChangeStatus(rc *req.Ctx) {
-	form := &form.DataSyncTaskStatusForm{}
-	task := req.BindJsonAndCopyTo[*entity.DataSyncTask](rc, form, new(entity.DataSyncTask))
-	_ = d.dataSyncTaskApp.UpdateById(rc.MetaCtx, task)
-
-	if task.Status == entity.DataSyncTaskStatusEnable {
-		task, err := d.dataSyncTaskApp.GetById(task.Id)
-		biz.ErrIsNil(err, "task not found")
-		d.dataSyncTaskApp.AddCronJob(rc.MetaCtx, task)
-	} else {
-		d.dataSyncTaskApp.RemoveCronJobById(task.Id)
-	}
-	// 记录请求日志
+	form := req.BindJson[*form.DataSyncTaskStatusForm](rc)
 	rc.ReqParam = form
+
+	task, err := d.dataSyncTaskApp.GetById(form.Id)
+	biz.ErrIsNil(err)
+	task.Status = entity.DataSyncTaskStatus(form.Status)
+	biz.ErrIsNil(d.dataSyncTaskApp.Save(rc.MetaCtx, task))
 }
 
 func (d *DataSyncTask) Run(rc *req.Ctx) {
 	taskId := d.getTaskId(rc)
 	rc.ReqParam = taskId
-	_ = d.dataSyncTaskApp.RunCronJob(rc.MetaCtx, taskId)
+	biz.ErrIsNil(d.dataSyncTaskApp.Run(rc.MetaCtx, taskId))
 }
 
 func (d *DataSyncTask) Stop(rc *req.Ctx) {

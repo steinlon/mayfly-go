@@ -119,8 +119,7 @@ func (p *TagTree) ListByQuery(rc *req.Ctx) {
 }
 
 func (p *TagTree) SaveTagTree(rc *req.Ctx) {
-	tagForm := &form.TagTree{}
-	tagTree := req.BindJsonAndCopyTo(rc, tagForm, new(entity.TagTree))
+	tagForm, tagTree := req.BindJsonAndCopyTo[*form.TagTree, *entity.TagTree](rc)
 
 	rc.ReqParam = fmt.Sprintf("tagTreeId: %d, tagName: %s, code: %s", tagTree.Id, tagTree.Name, tagTree.Code)
 
@@ -132,8 +131,7 @@ func (p *TagTree) DelTagTree(rc *req.Ctx) {
 }
 
 func (p *TagTree) MovingTag(rc *req.Ctx) {
-	movingForm := &form.MovingTag{}
-	req.BindJsonAndValid(rc, movingForm)
+	movingForm := req.BindJson[*form.MovingTag](rc)
 	rc.ReqParam = movingForm
 	biz.ErrIsNil(p.tagTreeApp.MovingTag(rc.MetaCtx, movingForm.FromPath, movingForm.ToPath))
 }
@@ -168,9 +166,15 @@ func (p *TagTree) CountTagResource(rc *req.Ctx) {
 		CodePathLikes: collx.AsArray(tagPath),
 	}).GetCodePaths()...)
 
+	esCodes := entity.GetCodesByCodePaths(entity.TagTypeEsInstance, p.tagTreeApp.GetAccountTags(accountId, &entity.TagTreeQuery{
+		Types:         collx.AsArray(entity.TagTypeEsInstance),
+		CodePathLikes: collx.AsArray(tagPath),
+	}).GetCodePaths()...)
+
 	rc.ResData = collx.M{
 		"machine": len(machineCodes),
 		"db":      len(dbCodes),
+		"es":      len(esCodes),
 		"redis": len(p.tagTreeApp.GetAccountTags(accountId, &entity.TagTreeQuery{
 			Types:         collx.AsArray(entity.TagTypeRedis),
 			CodePathLikes: collx.AsArray(tagPath),

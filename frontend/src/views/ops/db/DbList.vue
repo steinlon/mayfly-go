@@ -153,7 +153,7 @@
             :close-on-click-modal="false"
             v-model="sqlExecLogDialog.visible"
             :destroy-on-close="true"
-            body-class="h-250"
+            body-class="h-[65vh]"
         >
             <db-sql-exec-log :db-id="sqlExecLogDialog.dbId" :dbs="sqlExecLogDialog.dbs" />
         </el-dialog>
@@ -365,7 +365,7 @@ const editDb = (data: any) => {
         state.dbEditDialog.data = { ...data };
     } else {
         state.dbEditDialog.data = {
-            instanceId: props.instance.id,
+            instanceId: props.instance?.id,
         };
     }
     state.dbEditDialog.title = data ? useI18nEditTitle('db.db') : useI18nCreateTitle('db.db');
@@ -373,7 +373,7 @@ const editDb = (data: any) => {
 };
 
 const confirmEditDb = async (db: any) => {
-    db.instanceId = props.instance.id;
+    db.instanceId = props.instance?.id;
     await dbApi.saveDb.request(db);
     useI18nSaveSuccessMsg();
     search();
@@ -486,7 +486,7 @@ const onDumpDbs = async (row: any) => {
  * 数据库信息导出
  */
 const dumpDbs = async () => {
-    isTrue(state.exportDialog.value.length > 0, t('db.noDumpDbMsg'));
+    isTrue(state.exportDialog.value.length > 0, 'db.noDumpDbMsg');
     let type = 0;
     for (let c of state.exportDialog.contents) {
         if (c == '结构') {

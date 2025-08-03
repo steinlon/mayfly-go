@@ -5,8 +5,8 @@ import (
 	"mayfly-go/pkg/logx"
 	"strings"
 
-	"github.com/may-fly/cast"
 	"github.com/pkg/sftp"
+	"github.com/spf13/cast"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -16,6 +16,41 @@ type Cli struct {
 
 	sshClient  *ssh.Client  // ssh客户端
 	sftpClient *sftp.Client // sftp客户端
+}
+
+/******************* pool.Conn impl *******************/
+
+func (c *Cli) Ping() error {
+	_, _, err := c.sshClient.SendRequest("ping", true, nil)
+	return err
+}
+
+// Close 关闭client并从缓存中移除，如果使用隧道则也关闭
+func (c *Cli) Close() error {
+	m := c.Info
+	logx.Debugf("close machine cli -> id=%d, name=%s, ip=%s", m.Id, m.Name, m.Ip)
+	if c.sshClient != nil {
+		c.sshClient.Close()
+		c.sshClient = nil
+	}
+	if c.sftpClient != nil {
+		c.sftpClient.Close()
+		c.sftpClient = nil
+	}
+
+	var sshTunnelMachineId uint64
+	if m.SshTunnelMachine != nil {
+		sshTunnelMachineId = m.SshTunnelMachine.Id
+	}
+	if m.TempSshMachineId != 0 {
+		sshTunnelMachineId = m.TempSshMachineId
+	}
+	if sshTunnelMachineId != 0 {
+		logx.Debugf("close machine ssh tunnel -> machineId=%d, sshTunnelMachineId=%d", m.Id, sshTunnelMachineId)
+		CloseSshTunnelMachine(sshTunnelMachineId, m.GetTunnelId())
+	}
+
+	return nil
 }
 
 // GetSftpCli 获取sftp client
@@ -65,32 +100,6 @@ func (c *Cli) Run(shell string) (string, error) {
 		return string(buf), err
 	}
 	return string(buf), nil
-}
-
-// Close 关闭client并从缓存中移除，如果使用隧道则也关闭
-func (c *Cli) Close() {
-	m := c.Info
-	logx.Debugf("close machine cli -> id=%d, name=%s, ip=%s", m.Id, m.Name, m.Ip)
-	if c.sshClient != nil {
-		c.sshClient.Close()
-		c.sshClient = nil
-	}
-	if c.sftpClient != nil {
-		c.sftpClient.Close()
-		c.sftpClient = nil
-	}
-
-	var sshTunnelMachineId uint64
-	if m.SshTunnelMachine != nil {
-		sshTunnelMachineId = m.SshTunnelMachine.Id
-	}
-	if m.TempSshMachineId != 0 {
-		sshTunnelMachineId = m.TempSshMachineId
-	}
-	if sshTunnelMachineId != 0 {
-		logx.Debugf("close machine ssh tunnel -> machineId=%d, sshTunnelMachineId=%d", m.Id, sshTunnelMachineId)
-		CloseSshTunnelMachine(int(sshTunnelMachineId), m.GetTunnelId())
-	}
 }
 
 // GetAllStats 获取机器的所有状态信息

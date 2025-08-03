@@ -2,7 +2,7 @@
     <div class="h-full">
         <page-table :page-api="logApi.list" :search-items="searchItems" v-model:query-form="query" :columns="columns">
             <template #creator="{ data }">
-                <account-info :account-id="data.creatorId" :username="data.creator" />
+                <account-info :username="data.creator || ''" />
             </template>
         </page-table>
     </div>
@@ -14,7 +14,7 @@ import { logApi, accountApi } from '../api';
 import PageTable from '@/components/pagetable/PageTable.vue';
 import { TableColumn } from '@/components/pagetable';
 import { LogTypeEnum } from '../enums';
-import { OptionsApi, SearchItem } from '@/components/SearchForm';
+import { OptionsApi, SearchItem } from '@/components/pagetable/SearchForm';
 import AccountInfo from '../account/components/AccountInfo.vue';
 
 const searchItems = [

@@ -25,7 +25,7 @@
                     type="primary"
                     plain
                     size="small"
-                    :underline="false"
+                    underline="never"
                     @click="onShowRollbackSql(data)"
                 >
                     {{ $t('db.restoreSql') }}</el-link
@@ -45,7 +45,8 @@ import { dbApi } from './api';
 import { DbSqlExecTypeEnum, DbSqlExecStatusEnum } from './enums';
 import PageTable from '@/components/pagetable/PageTable.vue';
 import { TableColumn } from '@/components/pagetable';
-import { SearchItem } from '@/components/SearchForm';
+import { SearchItem } from '@/components/pagetable/SearchForm';
+import { formatDate } from '@/common/utils/format';
 
 const props = defineProps({
     dbId: {
@@ -62,6 +63,21 @@ const searchItems = [
     SearchItem.slot('db', 'db.db', 'dbSelect'),
     SearchItem.input('table', 'db.table'),
     SearchItem.select('type', 'db.stmtType').withEnum(DbSqlExecTypeEnum),
+    SearchItem.input('keyword', 'common.keyword'),
+    SearchItem.datePicker('execTimeRange', 'db.execTime')
+        .withSpan(2)
+        .withOneProps('type', 'datetimerange')
+        .withOneProps('format', 'YYYY-MM-DD HH:mm:ss')
+        .withOneProps('value-format', 'YYYY-MM-DD HH:mm:ss')
+        .bindEvent('change', (value: any) => {
+            if (!value) {
+                state.query.startTime = '';
+                state.query.endTime = '';
+                return;
+            }
+            state.query.startTime = formatDate(value[0]);
+            state.query.endTime = formatDate(value[1]);
+        }),
 ];
 
 const columns = ref([
@@ -88,6 +104,9 @@ const state = reactive({
         table: '',
         status: [DbSqlExecStatusEnum.Success.value, DbSqlExecStatusEnum.Fail.value].join(','),
         type: null,
+        keyword: '',
+        startTime: '',
+        endTime: '',
         pageNum: 1,
         pageSize: 10,
     },

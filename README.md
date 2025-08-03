@@ -15,11 +15,14 @@
     <img src="https://img.shields.io/github/stars/dromara/mayfly-go.svg?style=social" alt="github star"/>
     <img src="https://img.shields.io/github/forks/dromara/mayfly-go.svg?style=social" alt="github fork"/>
   </a>
+  <a href="https://github.com/dromara/mayfly-go" target="_blank">
+    <img src="https://gitcode.com/dromara/mayfly-go/star/badge.svg" alt="github star"/>
+  </a>
   <a href="https://hub.docker.com/r/mayflygo/mayfly-go/tags" target="_blank">
     <img src="https://img.shields.io/docker/pulls/mayflygo/mayfly-go.svg?label=docker%20pulls&color=fac858" alt="docker pulls"/>
   </a>
   <a href="https://github.com/golang/go" target="_blank">
-    <img src="https://img.shields.io/badge/Golang-1.22%2B-yellow.svg" alt="golang"/>
+    <img src="https://img.shields.io/badge/Golang-1.24%2B-yellow.svg" alt="golang"/>
   </a>
   <a href="https://cn.vuejs.org" target="_blank">
     <img src="https://img.shields.io/badge/Vue-3.x-green.svg" alt="vue">
@@ -28,7 +31,7 @@
 
 ## 前言
 
-Web版 **统一管理操作平台**，集成了对Linux系统的全面操作支持（包括终端管理[终端回放、命令过滤]、文件管理、脚本执行、进程监控及计划任务设置），同时提供了多种数据库（如 MySQL、PostgreSQL、Oracle、SQL Server、达梦、高斯、SQLite 等）的数据操作、数据同步与数据迁移功能。此外，还支持 Redis（单机、哨兵、集群模式）以及 MongoDB 的操作管理，并结合工单流程审批功能，为企业提供一站式的运维与管理解决方案。
+Web 版 **统一管理操作平台**，集成了对 Linux 系统的全面操作支持（包括终端管理[终端回放、命令过滤]、文件管理、脚本执行、进程监控及计划任务设置），同时提供了多种数据库（如 MySQL、PostgreSQL、Oracle、SQL Server、达梦、高斯、SQLite 等）的数据操作、数据同步与数据迁移功能。此外，还支持 Redis（单机、哨兵、集群模式）、 MongoDB 、Es 的操作管理，并结合工单流程审批功能，为企业提供一站式的运维与管理解决方案。
 
 ## 开发语言与主要框架
 
@@ -106,7 +109,7 @@ http://go.mayfly.run
 
 ## 💌 支持作者
 
-如果觉得项目不错，或者已经在使用了，希望你可以去 <a target="_blank" href="https://github.com/dromara/mayfly-go">Github</a> 或者 <a target="_blank" href="https://gitee.com/dromara/mayfly-go">Gitee</a> 帮我点个 ⭐ Star，这将是对我极大的鼓励与支持。
+如果觉得项目不错，或者已经在使用了，希望你可以去 <a target="_blank" href="https://github.com/dromara/mayfly-go">Github</a> 或 <a target="_blank" href="https://gitee.com/dromara/mayfly-go">Gitee</a> 或 <a target="_blank" href="https://gitcode.com/dromara/mayfly-go">Gitcode</a> 帮我点个 ⭐ Star，这将是对我极大的鼓励与支持。
 
 > 喝杯咖啡 ☕️ 或者来杯奶茶 🧋，让作者更有精神，写出更棒的代码！
 

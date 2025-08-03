@@ -66,7 +66,7 @@ export default {
         processName: '进程名',
         selectSortType: '请选择排序类型',
         selectProcessNum: '请选择进程个数',
-        cpuDesc: 'CUP降序',
+        cpuDesc: 'CPU降序',
         memDesc: '内存降序',
         virtualMemory: '虚拟内存',
         fixedMemory: '固定内存',
@@ -88,6 +88,8 @@ export default {
         scriptResultEnumRealTime: '实时交互',
         scriptTypeEnumPrivate: '私有',
         scriptTypeEnumPublic: '公共',
+        category: '分类',
+        categoryTips: '支持输入新分类并选择',
 
         // security
         cmdConfig: '命令配置',
@@ -137,5 +139,7 @@ export default {
         fileTooLargeTips: '文件太大, 请下载使用',
         uploadSuccess: '上传成功',
         fileExceedsSysConf: '上传的文件超过系统配置的【{uploadMaxFileSize}】',
+        fileUploadSuccess: '机器文件上传成功',
+        fileUploadFail: '机器文件上传失败',
     },
 };

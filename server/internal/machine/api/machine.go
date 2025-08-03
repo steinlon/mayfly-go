@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"mayfly-go/internal/event"
 	"mayfly-go/internal/machine/api/form"
 	"mayfly-go/internal/machine/api/vo"
 	"mayfly-go/internal/machine/application"
@@ -12,6 +11,7 @@ import (
 	"mayfly-go/internal/machine/imsg"
 	"mayfly-go/internal/machine/mcm"
 	"mayfly-go/internal/pkg/consts"
+	"mayfly-go/internal/pkg/event"
 	tagapp "mayfly-go/internal/tag/application"
 	tagentity "mayfly-go/internal/tag/domain/entity"
 	"mayfly-go/pkg/biz"
@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/may-fly/cast"
+	"github.com/spf13/cast"
 )
 
 type Machine struct {
@@ -76,7 +76,7 @@ func (m *Machine) ReqConfs() *req.Confs {
 }
 
 func (m *Machine) Machines(rc *req.Ctx) {
-	condition, pageParam := req.BindQueryAndPage(rc, new(entity.MachineQuery))
+	condition := req.BindQuery[*entity.MachineQuery](rc)
 
 	tags := m.tagTreeApp.GetAccountTags(rc.GetLoginAccount().Id, &tagentity.TagTreeQuery{
 		TypePaths:     collx.AsArray(tagentity.NewTypePaths(tagentity.TagTypeMachine, tagentity.TagTypeAuthCert)),
@@ -84,7 +84,7 @@ func (m *Machine) Machines(rc *req.Ctx) {
 	})
 	// 不存在可操作的机器-授权凭证标签，即没有可操作数据
 	if len(tags) == 0 {
-		rc.ResData = model.EmptyPageResult[any]()
+		rc.ResData = model.NewEmptyPageResult[any]()
 		return
 	}
 
@@ -92,13 +92,15 @@ func (m *Machine) Machines(rc *req.Ctx) {
 	machineCodes := tagentity.GetCodesByCodePaths(tagentity.TagTypeMachine, tagCodePaths...)
 	condition.Codes = collx.ArrayDeduplicate(machineCodes)
 
-	var machinevos []*vo.MachineVO
-	res, err := m.machineApp.GetMachineList(condition, pageParam, &machinevos)
+	res, err := m.machineApp.GetMachineList(condition)
 	biz.ErrIsNil(err)
 	if res.Total == 0 {
 		rc.ResData = res
 		return
 	}
+
+	resVo := model.PageResultConv[*entity.Machine, *vo.MachineVO](res)
+	machinevos := resVo.List
 
 	// 填充标签信息
 	m.tagTreeApp.FillTagInfo(tagentity.TagType(consts.ResourceTypeMachine), collx.ArrayMap(machinevos, func(mvo *vo.MachineVO) tagentity.ITagResource {
@@ -120,7 +122,7 @@ func (m *Machine) Machines(rc *req.Ctx) {
 			}
 		}
 	}
-	rc.ResData = res
+	rc.ResData = resVo
 }
 
 func (m *Machine) SimpleMachieInfo(rc *req.Ctx) {
@@ -133,15 +135,15 @@ func (m *Machine) SimpleMachieInfo(rc *req.Ctx) {
 }
 
 func (m *Machine) MachineStats(rc *req.Ctx) {
-	cli, err := m.machineApp.GetCli(GetMachineId(rc))
+	cli, err := m.machineApp.GetCli(rc.MetaCtx, GetMachineId(rc))
 	biz.ErrIsNilAppendErr(err, "connection error: %s")
+
 	rc.ResData = cli.GetAllStats()
 }
 
 // 保存机器信息
 func (m *Machine) SaveMachine(rc *req.Ctx) {
-	machineForm := new(form.MachineForm)
-	me := req.BindJsonAndCopyTo(rc, machineForm, new(entity.Machine))
+	machineForm, me := req.BindJsonAndCopyTo[*form.MachineForm, *entity.Machine](rc)
 
 	rc.ReqParam = machineForm
 
@@ -153,10 +155,9 @@ func (m *Machine) SaveMachine(rc *req.Ctx) {
 }
 
 func (m *Machine) TestConn(rc *req.Ctx) {
-	machineForm := new(form.MachineForm)
-	me := req.BindJsonAndCopyTo(rc, machineForm, new(entity.Machine))
+	machineForm, me := req.BindJsonAndCopyTo[*form.MachineForm, *entity.Machine](rc)
 	// 测试连接
-	biz.ErrIsNilAppendErr(m.machineApp.TestConn(me, machineForm.AuthCerts[0]), "connection error: %s")
+	biz.ErrIsNilAppendErr(m.machineApp.TestConn(rc.MetaCtx, me, machineForm.AuthCerts[0]), "connection error: %s")
 }
 
 func (m *Machine) ChangeStatus(rc *req.Ctx) {
@@ -194,8 +195,9 @@ func (m *Machine) GetProcess(rc *req.Ctx) {
 	count := rc.QueryIntDefault("count", 10)
 	cmd += "| head -n " + fmt.Sprintf("%d", count)
 
-	cli, err := m.machineApp.GetCli(GetMachineId(rc))
+	cli, err := m.machineApp.GetCli(rc.MetaCtx, GetMachineId(rc))
 	biz.ErrIsNilAppendErr(err, "connection error: %s")
+
 	biz.ErrIsNilAppendErr(m.tagTreeApp.CanAccess(rc.GetLoginAccount().Id, cli.Info.CodePath...), "%s")
 
 	res, err := cli.Run(cmd)
@@ -208,8 +210,9 @@ func (m *Machine) KillProcess(rc *req.Ctx) {
 	pid := rc.Query("pid")
 	biz.NotEmpty(pid, "pid cannot be empty")
 
-	cli, err := m.machineApp.GetCli(GetMachineId(rc))
+	cli, err := m.machineApp.GetCli(rc.MetaCtx, GetMachineId(rc))
 	biz.ErrIsNilAppendErr(err, "connection error: %s")
+
 	biz.ErrIsNilAppendErr(m.tagTreeApp.CanAccess(rc.GetLoginAccount().Id, cli.Info.CodePath...), "%s")
 
 	res, err := cli.Run("sudo kill -9 " + pid)
@@ -217,16 +220,18 @@ func (m *Machine) KillProcess(rc *req.Ctx) {
 }
 
 func (m *Machine) GetUsers(rc *req.Ctx) {
-	cli, err := m.machineApp.GetCli(GetMachineId(rc))
+	cli, err := m.machineApp.GetCli(rc.MetaCtx, GetMachineId(rc))
 	biz.ErrIsNilAppendErr(err, "connection error: %s")
+
 	res, err := cli.GetUsers()
 	biz.ErrIsNil(err)
 	rc.ResData = res
 }
 
 func (m *Machine) GetGroups(rc *req.Ctx) {
-	cli, err := m.machineApp.GetCli(GetMachineId(rc))
+	cli, err := m.machineApp.GetCli(rc.MetaCtx, GetMachineId(rc))
 	biz.ErrIsNilAppendErr(err, "connection error: %s")
+
 	res, err := cli.GetGroups()
 	biz.ErrIsNil(err)
 	rc.ResData = res
@@ -250,7 +255,7 @@ func (m *Machine) WsSSH(rc *req.Ctx) {
 	err = req.PermissionHandler(rc)
 	biz.ErrIsNil(err, mcm.GetErrorContentRn("You do not have permission to operate the machine terminal, please log in again and try again ~"))
 
-	cli, err := m.machineApp.NewCli(GetMachineAc(rc))
+	cli, err := m.machineApp.NewCli(rc.MetaCtx, GetMachineAc(rc))
 	biz.ErrIsNilAppendErr(err, mcm.GetErrorContentRn("connection error: %s"))
 	defer cli.Close()
 	biz.ErrIsNilAppendErr(m.tagTreeApp.CanAccess(rc.GetLoginAccount().Id, cli.Info.CodePath...), mcm.GetErrorContentRn("%s"))
@@ -270,7 +275,7 @@ func (m *Machine) WsSSH(rc *req.Ctx) {
 
 func (m *Machine) MachineTermOpRecords(rc *req.Ctx) {
 	mid := GetMachineId(rc)
-	res, err := m.machineTermOpApp.GetPageList(&entity.MachineTermOp{MachineId: mid}, rc.GetPageParam(), new([]entity.MachineTermOp))
+	res, err := m.machineTermOpApp.GetPageList(&entity.MachineTermOp{MachineId: mid}, rc.GetPageParam())
 	biz.ErrIsNil(err)
 	rc.ResData = res
 }
@@ -312,7 +317,7 @@ func (m *Machine) WsGuacamole(rc *req.Ctx) {
 		return
 	}
 
-	err = mi.IfUseSshTunnelChangeIpPort(true)
+	err = mi.IfUseSshTunnelChangeIpPort(rc.MetaCtx, true)
 	if err != nil {
 		return
 	}

@@ -1,14 +1,15 @@
 package oracle
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"mayfly-go/internal/db/dbm/dbi"
 	"mayfly-go/pkg/utils/collx"
 	"strings"
 
-	"github.com/may-fly/cast"
 	go_ora "github.com/sijms/go-ora/v2"
+	"github.com/spf13/cast"
 )
 
 func init() {
@@ -23,8 +24,8 @@ const (
 type Meta struct {
 }
 
-func (om *Meta) GetSqlDb(d *dbi.DbInfo) (*sql.DB, error) {
-	err := d.IfUseSshTunnelChangeIpPort()
+func (om *Meta) GetSqlDb(ctx context.Context, d *dbi.DbInfo) (*sql.DB, error) {
+	err := d.IfUseSshTunnelChangeIpPort(ctx)
 	if err != nil {
 		return nil, err
 	}

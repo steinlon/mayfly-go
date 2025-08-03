@@ -54,17 +54,16 @@ type App[T model.ModelI] interface {
 	// @param cond 可为*model.QueryCond也可以为普通查询model
 	ListByCond(cond any, cols ...string) ([]T, error)
 
-	// PageByCondToAny 分页查询并绑定至指定toModels
-	// @param cond 可为*model.QueryCond也可以为普通查询model
-	PageByCondToAny(cond any, pageParam *model.PageParam, toModels any) (*model.PageResult[any], error)
-
 	// PageByCond 根据指定条件分页查询
 	// @param cond 可为*model.QueryCond也可以为普通查询model
-	PageByCond(cond any, pageParam *model.PageParam, cols ...string) (*model.PageResult[[]T], error)
+	PageByCond(cond any, pageParam model.PageParam, cols ...string) (*model.PageResult[T], error)
 
 	// CountByCond 根据指定条件统计model表的数量
 	// @param cond 可为*model.QueryCond也可以为普通查询model
 	CountByCond(cond any) int64
+
+	//  CursorByCond 根据指定条件遍历model表数据
+	CursorByCond(cond any, handler func(T) error) error
 
 	// Tx 执行事务操作
 	Tx(ctx context.Context, funcs ...func(context.Context) error) (err error)
@@ -147,18 +146,36 @@ func (ai *AppImpl[T, R]) ListByCond(cond any, cols ...string) ([]T, error) {
 	return ai.GetRepo().SelectByCond(cond, cols...)
 }
 
-// PageByCondToAny 分页查询
-func (ai *AppImpl[T, R]) PageByCondToAny(cond any, pageParam *model.PageParam, toModels any) (*model.PageResult[any], error) {
-	return ai.GetRepo().PageByCondToAny(cond, pageParam, toModels)
-}
-
-func (ai *AppImpl[T, R]) PageByCond(cond any, pageParam *model.PageParam, cols ...string) (*model.PageResult[[]T], error) {
+func (ai *AppImpl[T, R]) PageByCond(cond any, pageParam model.PageParam, cols ...string) (*model.PageResult[T], error) {
 	return ai.GetRepo().PageByCond(cond, pageParam, cols...)
 }
 
 // 根据指定条件统计model表的数量, cond为条件可以为map等
 func (ai *AppImpl[T, R]) CountByCond(cond any) int64 {
 	return ai.GetRepo().CountByCond(cond)
+}
+
+func (ai *AppImpl[T, R]) CursorByCond(cond any, handler func(T) error) error {
+	offset := 0
+	batchSize := 200
+	for {
+		data, err := ai.GetRepo().SelectByCondWithOffset(cond, batchSize, offset)
+		if err != nil {
+			return err
+		}
+		if len(data) == 0 {
+			break
+		}
+
+		for _, item := range data {
+			if err := handler(item); err != nil {
+				return err
+			}
+		}
+
+		offset += len(data)
+	}
+	return nil
 }
 
 // Tx 执行事务操作

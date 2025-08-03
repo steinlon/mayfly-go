@@ -7,13 +7,14 @@ import (
 	"mayfly-go/internal/machine/domain/entity"
 	tagapp "mayfly-go/internal/tag/application"
 	"mayfly-go/pkg/biz"
+	"mayfly-go/pkg/model"
 	"mayfly-go/pkg/req"
 	"mayfly-go/pkg/utils/collx"
 	"mayfly-go/pkg/utils/jsonx"
 	"mayfly-go/pkg/utils/stringx"
 	"strings"
 
-	"github.com/may-fly/cast"
+	"github.com/spf13/cast"
 )
 
 type MachineScript struct {
@@ -27,6 +28,8 @@ func (ms *MachineScript) ReqConfs() *req.Confs {
 		// 获取指定机器脚本列表
 		req.NewGet(":machineId/scripts", ms.MachineScripts),
 
+		req.NewGet("/scripts/categorys", ms.MachineScriptCategorys),
+
 		req.NewPost(":machineId/scripts", ms.SaveMachineScript).Log(req.NewLogSave("机器-保存脚本")).RequiredPermissionCode("machine:script:save"),
 
 		req.NewDelete(":machineId/scripts/:scriptId", ms.DeleteMachineScript).Log(req.NewLogSave("机器-删除脚本")).RequiredPermissionCode("machine:script:del"),
@@ -38,15 +41,20 @@ func (ms *MachineScript) ReqConfs() *req.Confs {
 }
 
 func (m *MachineScript) MachineScripts(rc *req.Ctx) {
-	condition := &entity.MachineScript{MachineId: GetMachineId(rc)}
-	res, err := m.machineScriptApp.GetPageList(condition, rc.GetPageParam(), new([]vo.MachineScriptVO))
+	condition := &entity.MachineScript{MachineId: GetMachineId(rc), Category: rc.Query("category")}
+	res, err := m.machineScriptApp.GetPageList(condition, rc.GetPageParam())
+	biz.ErrIsNil(err)
+	rc.ResData = model.PageResultConv[*entity.MachineScript, *vo.MachineScriptVO](res)
+}
+
+func (m *MachineScript) MachineScriptCategorys(rc *req.Ctx) {
+	res, err := m.machineScriptApp.GetScriptCategorys(rc.MetaCtx)
 	biz.ErrIsNil(err)
 	rc.ResData = res
 }
 
 func (m *MachineScript) SaveMachineScript(rc *req.Ctx) {
-	form := new(form.MachineScriptForm)
-	machineScript := req.BindJsonAndCopyTo(rc, form, new(entity.MachineScript))
+	form, machineScript := req.BindJsonAndCopyTo[*form.MachineScriptForm, *entity.MachineScript](rc)
 
 	rc.ReqParam = form
 	biz.ErrIsNil(m.machineScriptApp.Save(rc.MetaCtx, machineScript))
@@ -76,8 +84,9 @@ func (m *MachineScript) RunMachineScript(rc *req.Ctx) {
 		script, err = stringx.TemplateParse(ms.Script, p)
 		biz.ErrIsNilAppendErr(err, "failed to parse the script template parameter: %s")
 	}
-	cli, err := m.machineApp.GetCliByAc(ac)
+	cli, err := m.machineApp.GetCliByAc(rc.MetaCtx, ac)
 	biz.ErrIsNilAppendErr(err, "connection error: %s")
+
 	biz.ErrIsNilAppendErr(m.tagApp.CanAccess(rc.GetLoginAccount().Id, cli.Info.CodePath...), "%s")
 
 	res, err := cli.Run(script)

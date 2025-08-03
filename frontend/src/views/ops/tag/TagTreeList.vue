@@ -1,7 +1,7 @@
 <template>
-    <div class="tag-tree-list card h-full flex">
-        <Splitpanes class="default-theme">
-            <Pane size="30" min-size="25" max-size="35" class="flex flex-col flex-1">
+    <div class="tag-tree-list card !p-2 h-full flex">
+        <el-splitter>
+            <el-splitter-panel size="30%" min="25%" max="35%" class="flex flex-col flex-1">
                 <div class="card !p-1 !mb-1 !mr-1 flex justify-between">
                     <div class="mb-1">
                         <el-input v-model="filterTag" clearable :placeholder="$t('tag.nameFilterPlaceholder')" class="mr-2 !w-[200px]" />
@@ -10,7 +10,7 @@
                             v-auth="'tag:save'"
                             type="primary"
                             icon="plus"
-                            @click="showSaveTagDialog(null)"
+                            @click="onShowSaveTagDialog(null)"
                         ></el-button>
                     </div>
                     <div>
@@ -33,15 +33,15 @@
                         highlight-current
                         :props="props"
                         :data="data"
-                        @node-expand="handleNodeExpand"
-                        @node-collapse="handleNodeCollapse"
-                        @node-contextmenu="nodeContextmenu"
-                        @node-click="treeNodeClick"
+                        @node-expand="onNodeExpand"
+                        @node-collapse="onNodeCollapse"
+                        @node-contextmenu="onNodeContextmenu"
+                        @node-click="onTreeNodeClick"
                         :default-expanded-keys="defaultExpandedKeys"
                         draggable
                         :allow-drop="allowDrop"
                         :allow-drag="allowDrag"
-                        @node-drop="handleDrop"
+                        @node-drop="onNodeDrop"
                         :expand-on-click-node="false"
                         :filter-node-method="filterNode"
                     >
@@ -63,11 +63,11 @@
                         </template>
                     </el-tree>
                 </el-scrollbar>
-            </Pane>
+            </el-splitter-panel>
 
-            <Pane min-size="40" size="70">
+            <el-splitter-panel>
                 <div class="ml-2 h-full">
-                    <el-tabs class="h-full" @tab-change="tabChange" v-model="state.activeTabName" v-if="currentTag">
+                    <el-tabs class="h-full" @tab-change="onTabChange" v-model="state.activeTabName" v-if="currentTag">
                         <el-tab-pane :label="$t('common.detail')" :name="TagDetail">
                             <el-descriptions :column="2" border>
                                 <el-descriptions-item :label="$t('common.type')">
@@ -110,6 +110,15 @@
                         <el-tab-pane
                             class="h-full"
                             :disabled="currentTag.type != TagResourceTypeEnum.Tag.value"
+                            :label="`${$t('tag.es')} (${resourceCount.es || 0})`"
+                            :name="EsTag"
+                        >
+                            <EsInstanceList lazy ref="esInstanceListRef" />
+                        </el-tab-pane>
+
+                        <el-tab-pane
+                            class="h-full"
+                            :disabled="currentTag.type != TagResourceTypeEnum.Tag.value"
                             :label="`Redis (${resourceCount.redis || 0})`"
                             :name="RedisTag"
                         >
@@ -126,10 +135,10 @@
                         </el-tab-pane>
                     </el-tabs>
                 </div>
-            </Pane>
-        </Splitpanes>
+            </el-splitter-panel>
+        </el-splitter>
 
-        <el-dialog width="500px" :title="saveTabDialog.title" :before-close="cancelSaveTag" v-model="saveTabDialog.visible">
+        <el-dialog width="500px" :title="saveTabDialog.title" :before-close="onCancelSaveTag" v-model="saveTabDialog.visible">
             <el-form ref="tagForm" :rules="rules" :model="saveTabDialog.form" label-width="auto">
                 <el-form-item prop="code" :label="$t('tag.code')" required>
                     <el-input :disabled="saveTabDialog.form.id ? true : false" v-model="saveTabDialog.form.code" auto-complete="off"></el-input>
@@ -143,8 +152,8 @@
             </el-form>
             <template #footer>
                 <div class="dialog-footer">
-                    <el-button @click="cancelSaveTag()">{{ $t('common.cancel') }}</el-button>
-                    <el-button @click="saveTag" type="primary">{{ $t('common.confirm') }}</el-button>
+                    <el-button @click="onCancelSaveTag()">{{ $t('common.cancel') }}</el-button>
+                    <el-button @click="onSaveTag" type="primary">{{ $t('common.confirm') }}</el-button>
                 </div>
             </template>
         </el-dialog>
@@ -159,7 +168,6 @@ import { tagApi } from './api';
 import { formatDate } from '@/common/utils/format';
 import { Contextmenu, ContextmenuItem } from '@/components/contextmenu/index';
 import { useUserInfo } from '@/store/userInfo';
-import { Splitpanes, Pane } from 'splitpanes';
 import { TagResourceTypeEnum } from '@/common/commonEnum';
 import EnumTag from '@/components/enumtag/EnumTag.vue';
 import EnumValue from '@/common/Enum';
@@ -178,6 +186,7 @@ import { Rules } from '@/common/rule';
 
 const MachineList = defineAsyncComponent(() => import('../machine/MachineList.vue'));
 const InstanceList = defineAsyncComponent(() => import('../db/InstanceList.vue'));
+const EsInstanceList = defineAsyncComponent(() => import('../es/EsInstanceList.vue'));
 const RedisList = defineAsyncComponent(() => import('../redis/RedisList.vue'));
 const MongoList = defineAsyncComponent(() => import('../mongo/MongoList.vue'));
 
@@ -196,12 +205,14 @@ const filterTag = ref('');
 const contextmenuRef = ref();
 const machineListRef: Ref<any> = ref(null);
 const dbInstanceListRef: Ref<any> = ref(null);
+const esInstanceListRef: Ref<any> = ref(null);
 const redisListRef: Ref<any> = ref(null);
 const mongoListRef: Ref<any> = ref(null);
 
 const TagDetail = 'tagDetail';
 const MachineTag = 'machineTag';
 const DbTag = 'dbTag';
+const EsTag = 'EsTag';
 const RedisTag = 'redisTag';
 const MongoTag = 'mongoTag';
 
@@ -212,7 +223,7 @@ const contextmenuAdd = new ContextmenuItem('addTag', 'tag.createSubTag')
         // 非标签类型不可添加子标签
         return data.type != TagResourceTypeEnum.Tag.value || (data.children && data.children?.[0].type != TagResourceTypeEnum.Tag.value);
     })
-    .withOnClick((data: any) => showSaveTagDialog(data));
+    .withOnClick((data: any) => onShowSaveTagDialog(data));
 
 const contextmenuEdit = new ContextmenuItem('edit', 'common.edit')
     .withIcon('edit')
@@ -220,7 +231,7 @@ const contextmenuEdit = new ContextmenuItem('edit', 'common.edit')
     .withHideFunc((data: any) => {
         return data.type != TagResourceTypeEnum.Tag.value;
     })
-    .withOnClick((data: any) => showEditTagDialog(data));
+    .withOnClick((data: any) => onShowEditTagDialog(data));
 
 const contextmenuDel = new ContextmenuItem('delete', 'common.delete')
     .withIcon('delete')
@@ -229,7 +240,7 @@ const contextmenuDel = new ContextmenuItem('delete', 'common.delete')
         // 存在子标签，则不允许删除
         return data.children || data.type != TagResourceTypeEnum.Tag.value;
     })
-    .withOnClick((data: any) => deleteTag(data));
+    .withOnClick((data: any) => onDeleteTag(data));
 
 const state = reactive({
     data: [],
@@ -353,7 +364,7 @@ const allowDrag = (node: any) => {
     );
 };
 
-const handleDrop = async (draggingNode: any, dropNode: any) => {
+const onNodeDrop = async (draggingNode: any, dropNode: any) => {
     const draggingData = draggingNode.data;
     const dropData = dropNode.data;
 
@@ -367,7 +378,7 @@ const handleDrop = async (draggingNode: any, dropNode: any) => {
     }
 };
 
-const tabChange = () => {
+const onTabChange = () => {
     setNowTabData();
 };
 
@@ -379,6 +390,9 @@ const setNowTabData = () => {
             break;
         case DbTag:
             dbInstanceListRef.value.search(tagPath);
+            break;
+        case EsTag:
+            esInstanceListRef.value.search(tagPath);
             break;
         case RedisTag:
             redisListRef.value.search(tagPath);
@@ -406,20 +420,21 @@ const getDetail = async (id: number) => {
 };
 
 // 树节点右击事件
-const nodeContextmenu = (event: any, data: any) => {
+const onNodeContextmenu = (event: any, data: any) => {
     const { clientX, clientY } = event;
     state.contextmenu.dropdown.x = clientX;
     state.contextmenu.dropdown.y = clientY;
     contextmenuRef.value.openContextmenu(data);
 };
 
-const treeNodeClick = async (data: any) => {
+const onTreeNodeClick = async (data: any) => {
     state.currentTag = await getDetail(data.id);
+    state.activeTabName = TagDetail;
     // 关闭可能存在的右击菜单
     contextmenuRef.value.closeContextmenu();
 };
 
-const showSaveTagDialog = (data: any) => {
+const onShowSaveTagDialog = (data: any) => {
     if (data) {
         state.saveTabDialog.form.pid = data.id;
         state.saveTabDialog.title = t('tag.createSubTagTitle', { codePath: data.codePath });
@@ -429,7 +444,7 @@ const showSaveTagDialog = (data: any) => {
     state.saveTabDialog.visible = true;
 };
 
-const showEditTagDialog = (data: any) => {
+const onShowEditTagDialog = (data: any) => {
     state.saveTabDialog.form.id = data.id;
     state.saveTabDialog.form.code = data.code;
     state.saveTabDialog.form.name = data.name;
@@ -438,23 +453,23 @@ const showEditTagDialog = (data: any) => {
     state.saveTabDialog.visible = true;
 };
 
-const saveTag = async () => {
+const onSaveTag = async () => {
     await useI18nFormValidate(tagForm);
     const form = state.saveTabDialog.form;
     await tagApi.saveTagTree.request(form);
     useI18nSaveSuccessMsg();
     search();
-    cancelSaveTag();
+    onCancelSaveTag();
     state.currentTag = null;
 };
 
-const cancelSaveTag = () => {
+const onCancelSaveTag = () => {
     state.saveTabDialog.visible = false;
     state.saveTabDialog.form = {} as any;
     tagForm.value.resetFields();
 };
 
-const deleteTag = async (data: any) => {
+const onDeleteTag = async (data: any) => {
     await useI18nDeleteConfirm(data.codePath);
     await tagApi.delTagTree.request({ id: data.id });
     useI18nDeleteSuccessMsg();
@@ -462,7 +477,7 @@ const deleteTag = async (data: any) => {
 };
 
 // 节点被展开时触发的事件
-const handleNodeExpand = (data: any, node: any) => {
+const onNodeExpand = (data: any, node: any) => {
     const id: any = node.data.id;
     if (!state.defaultExpandedKeys.includes(id)) {
         state.defaultExpandedKeys.push(id);
@@ -470,7 +485,7 @@ const handleNodeExpand = (data: any, node: any) => {
 };
 
 // 关闭节点
-const handleNodeCollapse = (data: any, node: any) => {
+const onNodeCollapse = (data: any, node: any) => {
     removeDeafultExpandId(node.data.id);
 
     let childNodes = node.childNodes;
@@ -479,7 +494,7 @@ const handleNodeCollapse = (data: any, node: any) => {
             removeDeafultExpandId(cn.data.id);
         }
         // 递归删除展开的子节点节点id
-        handleNodeCollapse(data, cn);
+        onNodeCollapse(data, cn);
     }
 };
 

@@ -1,7 +1,7 @@
 package api
 
 import (
-	"mayfly-go/internal/event"
+	"mayfly-go/internal/pkg/event"
 	"mayfly-go/internal/redis/api/form"
 	"mayfly-go/internal/redis/application/dto"
 	"mayfly-go/pkg/biz"
@@ -11,8 +11,7 @@ import (
 )
 
 func (r *Redis) RunCmd(rc *req.Ctx) {
-	var cmdReq form.RunCmdForm
-	runCmdParam := req.BindJsonAndCopyTo(rc, &cmdReq, new(dto.RunCmd))
+	cmdReq, runCmdParam := req.BindJsonAndCopyTo[*form.RunCmdForm, *dto.RunCmd](rc)
 	biz.IsTrue(len(cmdReq.Cmd) > 0, "redis cmd cannot be empty")
 
 	redisConn := r.getRedisConn(rc)

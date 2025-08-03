@@ -2,7 +2,7 @@
     <div class="layout-navbars-breadcrumb" v-show="themeConfig.isBreadcrumb">
         <SvgIcon class="layout-navbars-breadcrumb-icon" :name="themeConfig.isCollapse ? 'expand' : 'fold'" @click="onThemeConfigChange" />
         <el-breadcrumb class="layout-navbars-breadcrumb-hide">
-            <transition-group name="breadcrumb" mode="out-in">
+            <transition-group name="breadcrumb">
                 <el-breadcrumb-item v-for="(v, k) in state.breadcrumbList" :key="v.meta.title">
                     <span v-if="k === state.breadcrumbList.length - 1" class="layout-navbars-breadcrumb-span">
                         <SvgIcon :name="v.meta.icon" class="layout-navbars-breadcrumb-iconfont" v-if="themeConfig.isBreadcrumbIcon" />
@@ -24,7 +24,6 @@ import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useThemeConfig } from '@/store/themeConfig';
 import { useRoutesList } from '@/store/routesList';
-import mittBus from '@/common/utils/mitt';
 
 const { themeConfig } = storeToRefs(useThemeConfig());
 const { routesList } = storeToRefs(useRoutesList());
@@ -45,7 +44,6 @@ const onBreadcrumbClick = (v: any) => {
 };
 // 展开/收起左侧菜单点击
 const onThemeConfigChange = () => {
-    mittBus.emit('onMenuClick');
     themeConfig.value.isCollapse = !themeConfig.value.isCollapse;
 };
 // 处理面包屑数据

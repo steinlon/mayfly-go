@@ -11,15 +11,13 @@ import (
 	"mayfly-go/internal/db/dbm/dbi"
 	"mayfly-go/internal/db/domain/entity"
 	"mayfly-go/internal/db/imsg"
-	"mayfly-go/internal/event"
-	msgapp "mayfly-go/internal/msg/application"
 	msgdto "mayfly-go/internal/msg/application/dto"
+	"mayfly-go/internal/pkg/event"
 	"mayfly-go/internal/pkg/utils"
 	tagapp "mayfly-go/internal/tag/application"
 	tagentity "mayfly-go/internal/tag/domain/entity"
 	"mayfly-go/pkg/biz"
 	"mayfly-go/pkg/global"
-	"mayfly-go/pkg/i18n"
 	"mayfly-go/pkg/logx"
 	"mayfly-go/pkg/model"
 	"mayfly-go/pkg/req"
@@ -29,14 +27,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/may-fly/cast"
+	"github.com/spf13/cast"
 )
 
 type Db struct {
 	instanceApp  application.Instance  `inject:"T"`
 	dbApp        application.Db        `inject:"T"`
 	dbSqlExecApp application.DbSqlExec `inject:"T"`
-	msgApp       msgapp.Msg            `inject:"T"`
 	tagApp       tagapp.TagTree        `inject:"T"`
 }
 
@@ -77,7 +74,7 @@ func (d *Db) ReqConfs() *req.Confs {
 
 // @router /api/dbs [get]
 func (d *Db) Dbs(rc *req.Ctx) {
-	queryCond, page := req.BindQueryAndPage[*entity.DbQuery](rc, new(entity.DbQuery))
+	queryCond := req.BindQuery[*entity.DbQuery](rc)
 
 	// 不存在可访问标签id，即没有可操作数据
 	tags := d.tagApp.GetAccountTags(rc.GetLoginAccount().Id, &tagentity.TagTreeQuery{
@@ -85,14 +82,15 @@ func (d *Db) Dbs(rc *req.Ctx) {
 		CodePathLikes: collx.AsArray(queryCond.TagPath),
 	})
 	if len(tags) == 0 {
-		rc.ResData = model.EmptyPageResult[any]()
+		rc.ResData = model.NewEmptyPageResult[any]()
 		return
 	}
 	queryCond.Codes = tags.GetCodes()
 
-	var dbvos []*vo.DbListVO
-	res, err := d.dbApp.GetPageList(queryCond, page, &dbvos)
+	res, err := d.dbApp.GetPageList(queryCond)
 	biz.ErrIsNil(err)
+	resVo := model.PageResultConv[*entity.DbListPO, *vo.DbListVO](res)
+	dbvos := resVo.List
 
 	instances, _ := d.instanceApp.GetByIds(collx.ArrayMap(dbvos, func(i *vo.DbListVO) uint64 {
 		return i.InstanceId
@@ -110,13 +108,11 @@ func (d *Db) Dbs(rc *req.Ctx) {
 		}
 	}
 
-	rc.ResData = res
+	rc.ResData = resVo
 }
 
 func (d *Db) Save(rc *req.Ctx) {
-	form := &form.DbForm{}
-	db := req.BindJsonAndCopyTo[*entity.Db](rc, form, new(entity.Db))
-
+	form, db := req.BindJsonAndCopyTo[*form.DbForm, *entity.Db](rc)
 	rc.ReqParam = form
 
 	biz.ErrIsNil(d.dbApp.SaveDb(rc.MetaCtx, db))
@@ -136,11 +132,15 @@ func (d *Db) DeleteDb(rc *req.Ctx) {
 /**  数据库操作相关、执行sql等   ***/
 
 func (d *Db) ExecSql(rc *req.Ctx) {
-	form := req.BindJsonAndValid(rc, new(form.DbSqlExecForm))
+	form := req.BindJson[*form.DbSqlExecForm](rc)
+
+	ctx, cancel := context.WithTimeout(rc.MetaCtx, time.Duration(config.GetDbms().SqlExecTl)*time.Second)
+	defer cancel()
 
 	dbId := getDbId(rc)
-	dbConn, err := d.dbApp.GetDbConn(dbId, form.Db)
+	dbConn, err := d.dbApp.GetDbConn(ctx, dbId, form.Db)
 	biz.ErrIsNil(err)
+
 	biz.ErrIsNilAppendErr(d.tagApp.CanAccess(rc.GetLoginAccount().Id, dbConn.Info.CodePath...), "%s")
 
 	global.EventBus.Publish(rc.MetaCtx, event.EventTopicResourceOp, dbConn.Info.CodePath[0])
@@ -159,23 +159,9 @@ func (d *Db) ExecSql(rc *req.Ctx) {
 		CheckFlow: true,
 	}
 
-	ctx, cancel := context.WithTimeout(rc.MetaCtx, time.Duration(config.GetDbms().SqlExecTl)*time.Second)
-	defer cancel()
-
 	execRes, err := d.dbSqlExecApp.Exec(ctx, execReq)
 	biz.ErrIsNil(err)
 	rc.ResData = execRes
-}
-
-// progressCategory sql文件执行进度消息类型
-const progressCategory = "execSqlFileProgress"
-
-// progressMsg sql文件执行进度消息
-type progressMsg struct {
-	Id                 string `json:"id"`
-	Title              string `json:"title"`
-	ExecutedStatements int    `json:"executedStatements"`
-	Terminated         bool   `json:"terminated"`
 }
 
 // 执行sql文件
@@ -190,7 +176,7 @@ func (d *Db) ExecSqlFile(rc *req.Ctx) {
 	dbName := getDbName(rc)
 	clientId := rc.Query("clientId")
 
-	dbConn, err := d.dbApp.GetDbConn(dbId, dbName)
+	dbConn, err := d.dbApp.GetDbConn(rc.MetaCtx, dbId, dbName)
 	biz.ErrIsNil(err)
 	biz.ErrIsNilAppendErr(d.tagApp.CanAccess(rc.GetLoginAccount().Id, dbConn.Info.CodePath...), "%s")
 	rc.ReqParam = fmt.Sprintf("filename: %s -> %s", filename, dbConn.Info.GetLogDesc())
@@ -223,8 +209,9 @@ func (d *Db) DumpSql(rc *req.Ctx) {
 	needData := dumpType == "2" || dumpType == "3"
 
 	la := rc.GetLoginAccount()
-	dbConn, err := d.dbApp.GetDbConn(dbId, dbName)
+	dbConn, err := d.dbApp.GetDbConn(rc.MetaCtx, dbId, dbName)
 	biz.ErrIsNil(err)
+
 	biz.ErrIsNilAppendErr(d.tagApp.CanAccess(la.Id, dbConn.Info.CodePath...), "%s")
 
 	now := time.Now()
@@ -245,7 +232,11 @@ func (d *Db) DumpSql(rc *req.Ctx) {
 		if len(msg) > 0 {
 			msg = "DB dump error: " + msg
 			rc.GetWriter().Write([]byte(msg))
-			d.msgApp.CreateAndSend(la, msgdto.ErrSysMsg(i18n.T(imsg.DbDumpErr), msg))
+			global.EventBus.Publish(rc.MetaCtx, event.EventTopicMsgTmplSend, &msgdto.MsgTmplSendEvent{
+				TmplChannel: msgdto.MsgTmplDbDumpFail,
+				Params:      collx.M{"dbId": dbConn.Info.Id, "dbName": dbConn.Info.Name, "error": msg},
+				ReceiverIds: []uint64{la.Id},
+			})
 		}
 	}()
 
@@ -348,10 +339,9 @@ func (d *Db) GetSchemas(rc *req.Ctx) {
 }
 
 func (d *Db) CopyTable(rc *req.Ctx) {
-	form := &form.DbCopyTableForm{}
-	copy := req.BindJsonAndCopyTo[*dbi.DbCopyTable](rc, form, new(dbi.DbCopyTable))
+	form, copy := req.BindJsonAndCopyTo[*form.DbCopyTableForm, *dbi.DbCopyTable](rc)
 
-	conn, err := d.dbApp.GetDbConn(form.Id, form.Db)
+	conn, err := d.dbApp.GetDbConn(rc.MetaCtx, form.Id, form.Db)
 	biz.ErrIsNilAppendErr(err, "copy table error: %s")
 
 	err = conn.GetDialect().CopyTable(copy)
@@ -374,7 +364,7 @@ func getDbName(rc *req.Ctx) string {
 }
 
 func (d *Db) getDbConn(rc *req.Ctx) *dbi.DbConn {
-	dc, err := d.dbApp.GetDbConn(getDbId(rc), getDbName(rc))
+	dc, err := d.dbApp.GetDbConn(rc.MetaCtx, getDbId(rc), getDbName(rc))
 	biz.ErrIsNil(err)
 	return dc
 }

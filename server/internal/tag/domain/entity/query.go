@@ -5,7 +5,7 @@ import (
 	"mayfly-go/pkg/utils/collx"
 	"strings"
 
-	"github.com/may-fly/cast"
+	"github.com/spf13/cast"
 )
 
 type TypePath string
@@ -21,6 +21,7 @@ func NewTypePaths(types ...TagType) TypePath {
 }
 
 type TagTreeQuery struct {
+	model.PageParam
 	model.Model
 
 	Types         []TagType
@@ -34,6 +35,7 @@ type TagTreeQuery struct {
 }
 
 type TeamQuery struct {
+	model.PageParam
 	model.Model
 
 	Name string `json:"name" form:"name"` // 团队名称

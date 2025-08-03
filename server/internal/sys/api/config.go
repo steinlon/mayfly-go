@@ -35,7 +35,7 @@ func (c *Config) ReqConfs() *req.Confs {
 func (c *Config) Configs(rc *req.Ctx) {
 	condition := &entity.Config{Key: rc.Query("key")}
 	condition.Permission = rc.GetLoginAccount().Username
-	res, err := c.configApp.GetPageList(condition, rc.GetPageParam(), new([]entity.Config))
+	res, err := c.configApp.GetPageList(condition, rc.GetPageParam())
 	biz.ErrIsNil(err)
 	rc.ResData = res
 }
@@ -55,8 +55,7 @@ func (c *Config) GetConfigValueByKey(rc *req.Ctx) {
 }
 
 func (c *Config) SaveConfig(rc *req.Ctx) {
-	form := &form.ConfigForm{}
-	config := req.BindJsonAndCopyTo(rc, form, new(entity.Config))
+	form, config := req.BindJsonAndCopyTo[*form.ConfigForm, *entity.Config](rc)
 	rc.ReqParam = form
 	biz.ErrIsNil(c.configApp.Save(rc.MetaCtx, config))
 }

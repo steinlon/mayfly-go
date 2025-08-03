@@ -25,8 +25,8 @@ export default {
             success: 'Success',
             menuCodeTips: `The menu type is the access path (if the menu path does not begin with '/', the access address will automatically concatenate the parent menu path), otherwise it is the unique code of the resource`,
             menuCodePlaceholder: `A menu that does not begin with '/' will automatically concatenate the parent menu path`,
-            routerNameTips: 'For component caching to work, match the vue component name, such as ResourceLis',
-            componentPathTips: 'Access path components, such as: ` system/resource/ResourceList `, default in ` views ` directory',
+            routerNameTips:
+                'For component caching to work, the key for route.ts in the frontend module should match the vue component name, such as ResourceList',
             isCacheTips: `If yes is selected, it will be 'keepalive' cached (reentering the page without refreshing the page and requesting data again), and needs the route name to match the vue component name`,
             isHideTips:
                 'Select Hide and the route will not appear in the menu bar, but it will still be accessible. Disabled will not be able to access and operate',

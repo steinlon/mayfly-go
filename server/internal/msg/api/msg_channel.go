@@ -9,7 +9,7 @@ import (
 	"mayfly-go/pkg/req"
 	"strings"
 
-	"github.com/may-fly/cast"
+	"github.com/spf13/cast"
 )
 
 type MsgChannel struct {
@@ -30,15 +30,14 @@ func (m *MsgChannel) ReqConfs() *req.Confs {
 
 func (m *MsgChannel) GetMsgChannels(rc *req.Ctx) {
 	condition := &entity.MsgChannel{}
-	res, err := m.msgChannelApp.GetPageList(condition, rc.GetPageParam(), new([]entity.MsgChannel))
+	res, err := m.msgChannelApp.GetPageList(condition, rc.GetPageParam())
 	biz.ErrIsNil(err)
 	rc.ResData = res
 }
 
 func (m *MsgChannel) SaveMsgChannels(rc *req.Ctx) {
-	form := &form.MsgChannel{}
+	form, channel := req.BindJsonAndCopyTo[*form.MsgChannel, *entity.MsgChannel](rc)
 	rc.ReqParam = form
-	channel := req.BindJsonAndCopyTo(rc, form, new(entity.MsgChannel))
 	err := m.msgChannelApp.SaveChannel(rc.MetaCtx, channel)
 	biz.ErrIsNil(err)
 }

@@ -1,25 +1,22 @@
 <template>
-    <Splitpanes class="default-theme" @resize="handleResize">
-        <Pane :size="leftPaneSize" max-size="30">
+    <el-splitter @resize="handleResize">
+        <el-splitter-panel :size="leftPaneSize + '%'" max="30%">
             <slot name="left"></slot>
-        </Pane>
+        </el-splitter-panel>
 
-        <Pane>
+        <el-splitter-panel>
             <slot name="right"></slot>
-        </Pane>
-    </Splitpanes>
+        </el-splitter-panel>
+    </el-splitter>
 </template>
 
 <script lang="ts" setup>
-import { Pane, Splitpanes } from 'splitpanes';
 import { useWindowSize } from '@vueuse/core';
 import { computed } from 'vue';
 
 const emit = defineEmits(['resize']);
 
 const { width } = useWindowSize();
-
-console.log(width);
 
 const leftPaneSize = computed(() => (width.value >= 1600 ? 20 : 24));
 

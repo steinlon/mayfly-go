@@ -24,8 +24,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/may-fly/cast"
 	"github.com/redis/go-redis/v9"
+	"github.com/spf13/cast"
 )
 
 type Redis interface {
@@ -33,7 +33,7 @@ type Redis interface {
 	flowapp.FlowBizHandler
 
 	// 分页获取机器脚本信息列表
-	GetPageList(condition *entity.RedisQuery, pageParam *model.PageParam, toEntity any, orderBy ...string) (*model.PageResult[any], error)
+	GetPageList(condition *entity.RedisQuery, orderBy ...string) (*model.PageResult[*entity.Redis], error)
 
 	// 测试连接
 	TestConn(re *dto.SaveRedis) error
@@ -46,11 +46,13 @@ type Redis interface {
 	// 获取数据库连接实例
 	// id: 数据库实例id
 	// db: 库号
-	GetRedisConn(id uint64, db int) (*rdm.RedisConn, error)
+	GetRedisConn(ctx context.Context, id uint64, db int) (*rdm.RedisConn, error)
 
 	// 执行redis命令
 	RunCmd(ctx context.Context, redisConn *rdm.RedisConn, cmdParam *dto.RunCmd) (any, error)
 }
+
+var _ Redis = (*redisAppImpl)(nil)
 
 type redisAppImpl struct {
 	base.AppImpl[*entity.Redis, repository.Redis]
@@ -61,8 +63,8 @@ type redisAppImpl struct {
 }
 
 // 分页获取redis列表
-func (r *redisAppImpl) GetPageList(condition *entity.RedisQuery, pageParam *model.PageParam, toEntity any, orderBy ...string) (*model.PageResult[any], error) {
-	return r.GetRepo().GetRedisList(condition, pageParam, toEntity, orderBy...)
+func (r *redisAppImpl) GetPageList(condition *entity.RedisQuery, orderBy ...string) (*model.PageResult[*entity.Redis], error) {
+	return r.GetRepo().GetRedisList(condition, orderBy...)
 }
 
 func (r *redisAppImpl) TestConn(param *dto.SaveRedis) error {
@@ -172,8 +174,7 @@ func (r *redisAppImpl) Delete(ctx context.Context, id uint64) error {
 	}
 	// 如果存在连接，则关闭所有库连接信息
 	for _, dbStr := range strings.Split(re.Db, ",") {
-		db, _ := strconv.Atoi(dbStr)
-		rdm.CloseConn(re.Id, db)
+		rdm.CloseConn(re.Id, cast.ToInt(dbStr))
 	}
 
 	return r.Tx(ctx, func(ctx context.Context) error {
@@ -194,8 +195,8 @@ func (r *redisAppImpl) Delete(ctx context.Context, id uint64) error {
 }
 
 // 获取数据库连接实例
-func (r *redisAppImpl) GetRedisConn(id uint64, db int) (*rdm.RedisConn, error) {
-	return rdm.GetRedisConn(id, db, func() (*rdm.RedisInfo, error) {
+func (r *redisAppImpl) GetRedisConn(ctx context.Context, id uint64, db int) (*rdm.RedisConn, error) {
+	return rdm.GetRedisConn(ctx, id, db, func() (*rdm.RedisInfo, error) {
 		// 缓存不存在，则回调获取redis信息
 		re, err := r.GetById(id)
 		if err != nil {
@@ -251,12 +252,12 @@ func (r *redisAppImpl) FlowBizHandle(ctx context.Context, bizHandleParam *flowap
 		return nil, nil
 	}
 
-	runCmdParam, err := jsonx.To(procinst.BizForm, new(FlowRedisRunCmdBizForm))
+	runCmdParam, err := jsonx.To[*FlowRedisRunCmdBizForm](procinst.BizForm)
 	if err != nil {
 		return nil, errorx.NewBiz("failed to parse the business form information: %s", err.Error())
 	}
 
-	redisConn, err := r.GetRedisConn(runCmdParam.Id, runCmdParam.Db)
+	redisConn, err := r.GetRedisConn(ctx, runCmdParam.Id, runCmdParam.Db)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +265,7 @@ func (r *redisAppImpl) FlowBizHandle(ctx context.Context, bizHandleParam *flowap
 	handleRes := make([]map[string]any, 0)
 	hasErr := false
 
-	utils.SplitStmts(strings.NewReader(runCmdParam.Cmd), func(stmt string) error {
+	utils.SplitStmts(strings.NewReader(runCmdParam.Cmd), ';', func(stmt string) error {
 		cmd := strings.TrimSpace(stmt)
 		runRes := collx.Kvs("cmd", cmd)
 		if res, err := redisConn.RunCmd(ctx, collx.ArrayMap[string, any](parseRedisCommand(cmd), func(val string) any { return val })...); err != nil {

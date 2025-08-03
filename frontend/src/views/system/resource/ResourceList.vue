@@ -1,11 +1,11 @@
 <template>
-    <div class="card system-resource-list h-full flex">
-        <Splitpanes class="default-theme">
-            <Pane size="30" min-size="25" max-size="35" class="flex flex-col flex-1">
+    <div class="card !p-2 system-resource-list h-full flex">
+        <el-splitter>
+            <el-splitter-panel size="30%" max="35%" min="25%" class="flex flex-col flex-1">
                 <div class="card !p-1 mr-1 flex justify-between">
                     <div class="mb-1">
                         <el-input v-model="filterResource" clearable :placeholder="$t('system.menu.filterPlaceholder')" class="mr-2 !w-[200px]" />
-                        <el-button v-auth="perms.addResource" type="primary" icon="plus" @click="addResource(false)"></el-button>
+                        <el-button v-auth="perms.addResource" type="primary" icon="plus" @click="onAddResource(false)"></el-button>
                     </div>
 
                     <div>
@@ -27,7 +27,7 @@
                         @node-expand="handleNodeExpand"
                         @node-collapse="handleNodeCollapse"
                         @node-contextmenu="nodeContextmenu"
-                        @node-click="treeNodeClick"
+                        @node-click="onTreeNodeClick"
                         :default-expanded-keys="defaultExpandedKeys"
                         :expand-on-click-node="false"
                         draggable
@@ -60,9 +60,9 @@
                         </template>
                     </el-tree>
                 </el-scrollbar>
-            </Pane>
+            </el-splitter-panel>
 
-            <Pane min-size="40" size="70">
+            <el-splitter-panel>
                 <div class="ml-2">
                     <el-tabs v-model="state.activeTabName" @tab-click="onTabClick" v-if="currentResource">
                         <el-tab-pane :label="$t('common.detail')" :name="ResourceDetail">
@@ -77,9 +77,6 @@
                                 </el-descriptions-item>
                                 <el-descriptions-item v-if="currentResource.type == menuTypeValue" :label="$t('system.menu.routerName')">
                                     {{ currentResource.meta.routeName }}
-                                </el-descriptions-item>
-                                <el-descriptions-item v-if="currentResource.type == menuTypeValue" :label="$t('system.menu.componentPath')">
-                                    {{ currentResource.meta.component }}
                                 </el-descriptions-item>
                                 <el-descriptions-item v-if="currentResource.type == menuTypeValue" :label="$t('system.menu.isCache')">
                                     {{ currentResource.meta.isKeepAlive ? $t('system.menu.yes') : $t('system.menu.no') }}
@@ -126,8 +123,8 @@
                         </el-tab-pane>
                     </el-tabs>
                 </div>
-            </Pane>
-        </Splitpanes>
+            </el-splitter-panel>
+        </el-splitter>
 
         <ResourceEdit
             :title="dialogForm.title"
@@ -136,7 +133,7 @@
             :typeDisabled="dialogForm.typeDisabled"
             :departTree="data"
             :type="dialogForm.type"
-            @val-change="valChange"
+            @val-change="onValChange"
         />
 
         <contextmenu :dropdown="state.contextmenu.dropdown" :items="state.contextmenu.items" ref="contextmenuRef" />
@@ -152,7 +149,6 @@ import { resourceApi } from '../api';
 import { formatDate } from '@/common/utils/format';
 import EnumTag from '@/components/enumtag/EnumTag.vue';
 import { Contextmenu, ContextmenuItem } from '@/components/contextmenu';
-import { Splitpanes, Pane } from 'splitpanes';
 import { isPrefixSubsequence } from '@/common/utils/string';
 import { useI18n } from 'vue-i18n';
 import { useI18nDeleteConfirm, useI18nDeleteSuccessMsg } from '@/hooks/useI18n';
@@ -186,29 +182,29 @@ const contextmenuAdd = new ContextmenuItem('add', 'system.menu.addSubResource')
     .withIcon('circle-plus')
     .withPermission(perms.addResource)
     .withHideFunc((data: any) => data.type !== menuTypeValue)
-    .withOnClick((data: any) => addResource(data));
+    .withOnClick((data: any) => onAddResource(data));
 
 const contextmenuEdit = new ContextmenuItem('edit', 'common.edit')
     .withIcon('edit')
     .withPermission(perms.updateResource)
-    .withOnClick((data: any) => editResource(data));
+    .withOnClick((data: any) => onEditResource(data));
 
 const contextmenuEnable = new ContextmenuItem('enable', 'system.menu.enable')
     .withIcon('circle-check')
     .withPermission(perms.updateResource)
     .withHideFunc((data: any) => data.status === 1)
-    .withOnClick((data: any) => changeStatus(data, 1));
+    .withOnClick((data: any) => onChangeStatus(data, 1));
 
 const contextmenuDisable = new ContextmenuItem('disable', 'system.menu.disable')
     .withIcon('circle-close')
     .withPermission(perms.updateResource)
     .withHideFunc((data: any) => data.status === -1)
-    .withOnClick((data: any) => changeStatus(data, -1));
+    .withOnClick((data: any) => onChangeStatus(data, -1));
 
 const contextmenuDel = new ContextmenuItem('delete', 'common.delete')
     .withIcon('delete')
     .withPermission(perms.delResource)
-    .withOnClick((data: any) => deleteMenu(data));
+    .withOnClick((data: any) => onDeleteMenu(data));
 
 const state = reactive({
     contextmenu: {
@@ -263,7 +259,7 @@ const nodeContextmenu = (event: any, data: any) => {
     contextmenuRef.value.openContextmenu(data);
 };
 
-const treeNodeClick = async (data: any) => {
+const onTreeNodeClick = async (data: any) => {
     state.activeTabName = ResourceDetail;
     // 关闭可能存在的右击菜单
     contextmenuRef.value.closeContextmenu();
@@ -286,7 +282,7 @@ const onTabClick = async (activeTab: any) => {
     }
 };
 
-const deleteMenu = async (data: any) => {
+const onDeleteMenu = async (data: any) => {
     await useI18nDeleteConfirm(data.name);
     await resourceApi.del.request({
         id: data.id,
@@ -296,7 +292,7 @@ const deleteMenu = async (data: any) => {
     search();
 };
 
-const addResource = (data: any) => {
+const onAddResource = (data: any) => {
     let dialog = state.dialogForm;
     dialog.data = { pid: 0, type: 1 };
     // 添加顶级菜单情况
@@ -333,7 +329,7 @@ const addResource = (data: any) => {
     dialog.visible = true;
 };
 
-const editResource = async (data: any) => {
+const onEditResource = async (data: any) => {
     const res = await resourceApi.detail.request({
         id: data.id,
     });
@@ -347,12 +343,12 @@ const editResource = async (data: any) => {
     state.dialogForm.visible = true;
 };
 
-const valChange = () => {
+const onValChange = () => {
     search();
     state.dialogForm.visible = false;
 };
 
-const changeStatus = async (data: any, status: any) => {
+const onChangeStatus = async (data: any, status: any) => {
     await resourceApi.changeStatus.request({
         id: data.id,
         status: status,

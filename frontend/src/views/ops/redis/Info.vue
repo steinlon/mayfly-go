@@ -1,6 +1,13 @@
 <template>
     <div>
-        <el-dialog :title="title" v-model="dialogVisible" :show-close="true" width="1000px" @close="close()">
+        <el-dialog
+            :title="title"
+            v-model="dialogVisible"
+            :show-close="true"
+            width="1000px"
+            @close="close()"
+            body-class="h-[65vh] overflow-y-auto overflow-x-hidden"
+        >
             <el-row :gutter="20">
                 <el-col :lg="16" :md="16">
                     <el-descriptions class="redis-info info-server" :title="$t('redis.redisInfoTitle')" :column="3" size="small" border>
@@ -22,9 +29,9 @@
             <el-row :gutter="20">
                 <el-col :lg="12" :md="12">
                     <el-descriptions class="redis-info info-cluster" :title="$t('redis.node')" :column="3" size="small" border>
-                        <el-descriptions-item :label="$t('redis.clusterEnable')">{{ info.Cluster.cluster_enabled }}</el-descriptions-item>
-                        <el-descriptions-item label="DB">{{ info.Cluster.databases }}</el-descriptions-item>
-                        <el-descriptions-item :label="$t('redis.nodeCount')">{{ info.Cluster.nodecount }}</el-descriptions-item>
+                        <el-descriptions-item :label="$t('redis.clusterEnable')">{{ info.Cluster?.cluster_enabled }}</el-descriptions-item>
+                        <el-descriptions-item label="DB">{{ info.Cluster?.databases }}</el-descriptions-item>
+                        <el-descriptions-item :label="$t('redis.nodeCount')">{{ info.Cluster?.nodecount }}</el-descriptions-item>
                     </el-descriptions>
                 </el-col>
 

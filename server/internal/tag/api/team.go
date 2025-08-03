@@ -16,7 +16,7 @@ import (
 	"mayfly-go/pkg/utils/collx"
 	"strings"
 
-	"github.com/may-fly/cast"
+	"github.com/spf13/cast"
 )
 
 type Team struct {
@@ -46,20 +46,21 @@ func (t *Team) ReqConfs() *req.Confs {
 }
 
 func (p *Team) GetTeams(rc *req.Ctx) {
-	queryCond, page := req.BindQueryAndPage(rc, new(entity.TeamQuery))
-	var teams []*vo.Team
-	res, err := p.teamApp.GetPageList(queryCond, page, &teams)
-	biz.ErrIsNil(err)
+	queryCond := req.BindQuery[*entity.TeamQuery](rc)
 
+	res, err := p.teamApp.GetPageList(queryCond)
+	biz.ErrIsNil(err)
+	resVo := model.PageResultConv[*entity.Team, *vo.Team](res)
+	teams := resVo.List
 	p.tagTreeRelateApp.FillTagInfo(entity.TagRelateTypeTeam, collx.ArrayMap(teams, func(mvo *vo.Team) entity.IRelateTag {
 		return mvo
 	})...)
 
-	rc.ResData = res
+	rc.ResData = resVo
 }
 
 func (p *Team) SaveTeam(rc *req.Ctx) {
-	team := req.BindJsonAndValid(rc, new(dto.SaveTeam))
+	team := req.BindJson[*dto.SaveTeam](rc)
 	rc.ReqParam = team
 	biz.ErrIsNil(p.teamApp.SaveTeam(rc.MetaCtx, team))
 }
@@ -79,14 +80,14 @@ func (p *Team) GetTeamMembers(rc *req.Ctx) {
 	condition := &entity.TeamMember{TeamId: uint64(rc.PathParamInt("id"))}
 	condition.Username = rc.Query("username")
 
-	res, err := p.teamApp.GetMemberPage(condition, rc.GetPageParam(), &[]vo.TeamMember{})
+	res, err := p.teamApp.GetMemberPage(condition, rc.GetPageParam())
 	biz.ErrIsNil(err)
 	rc.ResData = res
 }
 
 // 保存团队信息
 func (p *Team) SaveTeamMember(rc *req.Ctx) {
-	teamMems := req.BindJsonAndValid(rc, new(form.TeamMember))
+	teamMems := req.BindJson[*form.TeamMember](rc)
 
 	teamId := teamMems.TeamId
 

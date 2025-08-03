@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/may-fly/cast"
+	"github.com/spf13/cast"
 )
 
 const (
@@ -56,8 +56,8 @@ func (a *Account) ReqConfs() *req.Confs {
 		// 获取用户列表信息（只包含最基础信息）
 		req.NewGet("/simple", a.SimpleAccounts),
 
-		// 根据账号id获取账号基础信息
-		req.NewGet("/:id", a.AccountDetail),
+		// 根据username获取账号基础信息
+		req.NewGet("/detail", a.AccountDetail),
 
 		req.NewPost("", a.SaveAccount).Log(req.NewLogSaveI(imsg.LogAccountCreate)).RequiredPermission(addAccountPermission),
 
@@ -108,7 +108,7 @@ func (a *Account) GetPermissions(rc *req.Ctx) {
 func (a *Account) ChangePassword(rc *req.Ctx) {
 	ctx := rc.MetaCtx
 
-	form := req.BindJsonAndValid(rc, new(form.AccountChangePasswordForm))
+	form := req.BindJson[*form.AccountChangePasswordForm](rc)
 
 	originOldPwd, err := utils.DefaultRsaDecrypt(form.OldPassword, true)
 	biz.ErrIsNilAppendErr(err, "Wrong to decrypt old password: %s")
@@ -145,9 +145,10 @@ func (a *Account) AccountInfo(rc *req.Ctx) {
 
 // 更新个人账号信息
 func (a *Account) UpdateAccount(rc *req.Ctx) {
-	updateAccount := req.BindJsonAndCopyTo[*entity.Account](rc, new(form.AccountUpdateForm), new(entity.Account))
+	form, updateAccount := req.BindJsonAndCopyTo[*form.AccountUpdateForm, *entity.Account](rc)
 	// 账号id为登录者账号
 	updateAccount.Id = rc.GetLoginAccount().Id
+	rc.ReqParam = form
 
 	ctx := rc.MetaCtx
 	if updateAccount.Password != "" {
@@ -172,9 +173,10 @@ func (a *Account) Accounts(rc *req.Ctx) {
 	condition := &entity.AccountQuery{}
 	condition.Username = rc.Query("username")
 	condition.Name = rc.Query("name")
-	res, err := a.accountApp.GetPageList(condition, rc.GetPageParam(), new([]vo.AccountManageVO))
+	condition.PageParam = rc.GetPageParam()
+	res, err := a.accountApp.GetPageList(condition)
 	biz.ErrIsNil(err)
-	rc.ResData = res
+	rc.ResData = model.PageResultConv[*entity.Account, *vo.AccountManageVO](res)
 }
 
 func (a *Account) SimpleAccounts(rc *req.Ctx) {
@@ -187,27 +189,29 @@ func (a *Account) SimpleAccounts(rc *req.Ctx) {
 			return cast.ToUint64(val)
 		})
 	}
-	res, err := a.accountApp.GetPageList(condition, rc.GetPageParam(), new([]vo.SimpleAccountVO))
+	condition.PageParam = rc.GetPageParam()
+	res, err := a.accountApp.GetPageList(condition)
 	biz.ErrIsNil(err)
-	rc.ResData = res
+	rc.ResData = model.PageResultConv[*entity.Account, *vo.SimpleAccountVO](res)
 }
 
 // 获取账号详情
 func (a *Account) AccountDetail(rc *req.Ctx) {
-	accountId := uint64(rc.PathParamInt("id"))
-	account, err := a.accountApp.GetById(accountId)
+	username := rc.Query("username")
+	biz.NotEmpty(username, "username is required")
+	account := &entity.Account{Username: username}
+	err := a.accountApp.GetByCond(account)
 	biz.ErrIsNilAppendErr(err, "Account does not exist: %s")
 	accountvo := new(vo.SimpleAccountVO)
 	structx.Copy(accountvo, account)
 
-	accountvo.Roles = a.getAccountRoles(accountId)
+	accountvo.Roles = a.getAccountRoles(account.Id)
 	rc.ResData = accountvo
 }
 
 // @router /accounts
 func (a *Account) SaveAccount(rc *req.Ctx) {
-	form := &form.AccountCreateForm{}
-	account := req.BindJsonAndCopyTo(rc, form, new(entity.Account))
+	form, account := req.BindJsonAndCopyTo[*form.AccountCreateForm, *entity.Account](rc)
 
 	form.Password = "*****"
 	rc.ReqParam = form
@@ -303,7 +307,7 @@ func (a *Account) AccountResources(rc *req.Ctx) {
 
 // 关联账号角色
 func (a *Account) RelateRole(rc *req.Ctx) {
-	form := req.BindJsonAndValid(rc, new(form.AccountRoleForm))
+	form := req.BindJson[*form.AccountRoleForm](rc)
 	rc.ReqParam = form
 	biz.ErrIsNil(a.roleApp.RelateAccountRole(rc.MetaCtx, form.Id, form.RoleId, consts.AccountRoleRelateType(form.RelateType)))
 }

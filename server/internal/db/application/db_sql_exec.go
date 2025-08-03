@@ -13,19 +13,19 @@ import (
 	"mayfly-go/internal/db/imsg"
 	flowapp "mayfly-go/internal/flow/application"
 	flowentity "mayfly-go/internal/flow/domain/entity"
-	msgapp "mayfly-go/internal/msg/application"
 	msgdto "mayfly-go/internal/msg/application/dto"
+	"mayfly-go/internal/pkg/event"
 	"mayfly-go/pkg/contextx"
 	"mayfly-go/pkg/errorx"
-	"mayfly-go/pkg/i18n"
+	"mayfly-go/pkg/global"
 	"mayfly-go/pkg/logx"
 	"mayfly-go/pkg/model"
 	"mayfly-go/pkg/utils/anyx"
 	"mayfly-go/pkg/utils/collx"
 	"mayfly-go/pkg/utils/jsonx"
 	"mayfly-go/pkg/utils/stringx"
-	"mayfly-go/pkg/ws"
 	"strings"
+	"time"
 )
 
 type sqlExecParam struct {
@@ -61,7 +61,7 @@ type DbSqlExec interface {
 	DeleteBy(ctx context.Context, condition *entity.DbSqlExec) error
 
 	// 分页获取
-	GetPageList(condition *entity.DbSqlExecQuery, pageParam *model.PageParam, toEntity any, orderBy ...string) (*model.PageResult[any], error)
+	GetPageList(condition *entity.DbSqlExecQuery, orderBy ...string) (*model.PageResult[*entity.DbSqlExec], error)
 }
 
 var _ (DbSqlExec) = (*dbSqlExecAppImpl)(nil)
@@ -71,7 +71,6 @@ type dbSqlExecAppImpl struct {
 	dbSqlExecRepo repository.DbSqlExec `inject:"T"`
 
 	flowProcdefApp flowapp.Procdef `inject:"T"`
-	msgApp         msgapp.Msg      `inject:"T"`
 }
 
 func createSqlExecRecord(ctx context.Context, execSqlReq *dto.DbSqlExecReq, sql string) *entity.DbSqlExec {
@@ -81,7 +80,6 @@ func createSqlExecRecord(ctx context.Context, execSqlReq *dto.DbSqlExecReq, sql 
 	dbSqlExecRecord.Sql = sql
 	dbSqlExecRecord.Remark = execSqlReq.Remark
 	dbSqlExecRecord.Status = entity.DbSqlExecStatusSuccess
-	dbSqlExecRecord.FillBaseInfo(model.IdGenTypeNone, contextx.GetLoginAccount(ctx))
 	return dbSqlExecRecord
 }
 
@@ -100,7 +98,7 @@ func (d *dbSqlExecAppImpl) Exec(ctx context.Context, execSqlReq *dto.DbSqlExecRe
 	stmts, err := sp.Parse(execSql)
 	// sql解析失败，则使用默认方式切割
 	if err != nil {
-		sqlparser.SQLSplit(strings.NewReader(execSql), func(oneSql string) error {
+		sqlparser.SQLSplit(strings.NewReader(execSql), ';', func(oneSql string) error {
 			var execRes *dto.DbSqlExecRes
 			var err error
 
@@ -130,7 +128,7 @@ func (d *dbSqlExecAppImpl) Exec(ctx context.Context, execSqlReq *dto.DbSqlExecRe
 				}
 				execRes.ErrorMsg = err.Error()
 			} else {
-				d.saveSqlExecLog(dbSqlExecRecord, dbSqlExecRecord.Res)
+				d.saveSqlExecLog(ctx, dbSqlExecRecord, dbSqlExecRecord.Res)
 			}
 			allExecRes = append(allExecRes, execRes)
 			return nil
@@ -191,7 +189,7 @@ func (d *dbSqlExecAppImpl) Exec(ctx context.Context, execSqlReq *dto.DbSqlExecRe
 			}
 			execRes.ErrorMsg = err.Error()
 		} else {
-			d.saveSqlExecLog(dbSqlExecRecord, execRes.Res)
+			d.saveSqlExecLog(ctx, dbSqlExecRecord, execRes.Res)
 		}
 		allExecRes = append(allExecRes, execRes)
 	}
@@ -207,38 +205,55 @@ func (d *dbSqlExecAppImpl) ExecReader(ctx context.Context, execReader *dto.SqlRe
 	la := contextx.GetLoginAccount(ctx)
 	needSendMsg := la != nil && clientId != ""
 
+	startTime := time.Now()
+	executedStatements := 0
+	progressId := stringx.Rand(32)
+
+	msgEvent := &msgdto.MsgTmplSendEvent{
+		TmplChannel: msgdto.MsgTmplSqlScriptRunSuccess,
+		Params:      collx.M{"filename": filename, "dbId": dbConn.Info.Id, "dbName": dbConn.Info.Name},
+	}
+
+	progressMsgEvent := &msgdto.MsgTmplSendEvent{
+		TmplChannel: msgdto.MsgTmplSqlScriptRunProgress,
+		Params: collx.M{
+			"id":                 progressId,
+			"title":              filename,
+			"executedStatements": executedStatements,
+			"terminated":         false,
+			"clientId":           clientId,
+		},
+	}
+
+	if needSendMsg {
+		msgEvent.ReceiverIds = []uint64{la.Id}
+		progressMsgEvent.ReceiverIds = []uint64{la.Id}
+	}
+
 	defer func() {
+		if needSendMsg {
+			progressMsgEvent.Params["terminated"] = true
+			global.EventBus.Publish(ctx, event.EventTopicMsgTmplSend, progressMsgEvent)
+		}
+
 		if err := recover(); err != nil {
 			errInfo := anyx.ToString(err)
 			logx.Errorf("exec sql reader error: %s", errInfo)
 			if needSendMsg {
 				errInfo = stringx.Truncate(errInfo, 300, 10, "...")
-				d.msgApp.CreateAndSend(la, msgdto.ErrSysMsg(i18n.T(imsg.SqlScriptRunFail), fmt.Sprintf("[%s][%s] execution failure: [%s]", filename, dbConn.Info.GetLogDesc(), errInfo)).WithClientId(clientId))
+				msgEvent.TmplChannel = msgdto.MsgTmplSqlScriptRunFail
+				msgEvent.Params["error"] = errInfo
+				global.EventBus.Publish(ctx, event.EventTopicMsgTmplSend, msgEvent)
 			}
 		}
 	}()
 
-	executedStatements := 0
-	progressId := stringx.Rand(32)
-	if needSendMsg {
-		defer ws.SendJsonMsg(ws.UserId(la.Id), clientId, msgdto.InfoSysMsg(i18n.T(imsg.SqlScripRunProgress), &progressMsg{
-			Id:                 progressId,
-			Title:              filename,
-			ExecutedStatements: executedStatements,
-			Terminated:         true,
-		}).WithCategory(progressCategory))
-	}
-
 	tx, _ := dbConn.Begin()
-	err := sqlparser.SQLSplit(execReader.Reader, func(sql string) error {
+	err := sqlparser.SQLSplit(execReader.Reader, ';', func(sql string) error {
 		if executedStatements%50 == 0 {
 			if needSendMsg {
-				ws.SendJsonMsg(ws.UserId(la.Id), clientId, msgdto.InfoSysMsg(i18n.T(imsg.SqlScripRunProgress), &progressMsg{
-					Id:                 progressId,
-					Title:              filename,
-					ExecutedStatements: executedStatements,
-					Terminated:         false,
-				}).WithCategory(progressCategory))
+				progressMsgEvent.Params["executedStatements"] = executedStatements
+				global.EventBus.Publish(ctx, event.EventTopicMsgTmplSend, progressMsgEvent)
 			}
 		}
 
@@ -250,12 +265,18 @@ func (d *dbSqlExecAppImpl) ExecReader(ctx context.Context, execReader *dto.SqlRe
 	})
 	if err != nil {
 		_ = tx.Rollback()
+		if needSendMsg {
+			msgEvent.TmplChannel = msgdto.MsgTmplSqlScriptRunFail
+			msgEvent.Params["error"] = err.Error()
+			global.EventBus.Publish(ctx, event.EventTopicMsgTmplSend, msgEvent)
+		}
 		return err
 	}
 	_ = tx.Commit()
 
 	if needSendMsg {
-		d.msgApp.CreateAndSend(la, msgdto.SuccessSysMsg(i18n.T(imsg.SqlScriptRunSuccess), "execution success").WithClientId(clientId))
+		msgEvent.Params["cost"] = fmt.Sprintf("%dms", time.Since(startTime).Milliseconds())
+		global.EventBus.Publish(ctx, event.EventTopicMsgTmplSend, msgEvent)
 	}
 	return nil
 }
@@ -277,12 +298,12 @@ func (d *dbSqlExecAppImpl) FlowBizHandle(ctx context.Context, bizHandleParam *fl
 		return nil, nil
 	}
 
-	execSqlBizForm, err := jsonx.To(procinst.BizForm, new(FlowDbExecSqlBizForm))
+	execSqlBizForm, err := jsonx.To[*FlowDbExecSqlBizForm](procinst.BizForm)
 	if err != nil {
 		return nil, errorx.NewBiz("failed to parse the business form information: %s", err.Error())
 	}
 
-	dbConn, err := d.dbApp.GetDbConn(execSqlBizForm.DbId, execSqlBizForm.DbName)
+	dbConn, err := d.dbApp.GetDbConn(ctx, execSqlBizForm.DbId, execSqlBizForm.DbName)
 	if err != nil {
 		return nil, err
 	}
@@ -313,15 +334,15 @@ func (d *dbSqlExecAppImpl) DeleteBy(ctx context.Context, condition *entity.DbSql
 	return d.dbSqlExecRepo.DeleteByCond(ctx, condition)
 }
 
-func (d *dbSqlExecAppImpl) GetPageList(condition *entity.DbSqlExecQuery, pageParam *model.PageParam, toEntity any, orderBy ...string) (*model.PageResult[any], error) {
-	return d.dbSqlExecRepo.GetPageList(condition, pageParam, toEntity, orderBy...)
+func (d *dbSqlExecAppImpl) GetPageList(condition *entity.DbSqlExecQuery, orderBy ...string) (*model.PageResult[*entity.DbSqlExec], error) {
+	return d.dbSqlExecRepo.GetPageList(condition, orderBy...)
 }
 
 // 保存sql执行记录，如果是查询类则根据系统配置判断是否保存
-func (d *dbSqlExecAppImpl) saveSqlExecLog(dbSqlExecRecord *entity.DbSqlExec, res any) {
+func (d *dbSqlExecAppImpl) saveSqlExecLog(ctx context.Context, dbSqlExecRecord *entity.DbSqlExec, res any) {
 	if dbSqlExecRecord.Type != entity.DbSqlExecTypeQuery {
 		dbSqlExecRecord.Res = jsonx.ToStr(res)
-		d.dbSqlExecRepo.Insert(context.TODO(), dbSqlExecRecord)
+		d.dbSqlExecRepo.Insert(ctx, dbSqlExecRecord)
 		return
 	}
 
@@ -329,7 +350,7 @@ func (d *dbSqlExecAppImpl) saveSqlExecLog(dbSqlExecRecord *entity.DbSqlExec, res
 		dbSqlExecRecord.Table = "-"
 		dbSqlExecRecord.OldValue = "-"
 		dbSqlExecRecord.Type = entity.DbSqlExecTypeQuery
-		d.dbSqlExecRepo.Insert(context.TODO(), dbSqlExecRecord)
+		d.dbSqlExecRepo.Insert(ctx, dbSqlExecRecord)
 	}
 }
 
@@ -590,28 +611,35 @@ func (d *dbSqlExecAppImpl) doExec(ctx context.Context, dbConn *dbi.DbConn, sql s
 }
 
 func isSelect(sql string) bool {
-	return strings.Contains(strings.ToLower(sql[:10]), "select")
+	return strings.Contains(getSqlPrefix(sql), "select")
 }
 
 func isUpdate(sql string) bool {
-	return strings.Contains(strings.ToLower(sql[:10]), "update")
+	return strings.Contains(getSqlPrefix(sql), "update")
 }
 
 func isDelete(sql string) bool {
-	return strings.Contains(strings.ToLower(sql[:10]), "delete")
+	return strings.Contains(getSqlPrefix(sql), "delete")
 }
 
 func isInsert(sql string) bool {
-	return strings.Contains(strings.ToLower(sql[:10]), "insert")
+	return strings.Contains(getSqlPrefix(sql), "insert")
 }
 
 func isOtherQuery(sql string) bool {
-	sqlPrefix := strings.ToLower(sql[:10])
+	sqlPrefix := getSqlPrefix(sql)
 	return strings.Contains(sqlPrefix, "explain") || strings.Contains(sqlPrefix, "show") || strings.Contains(sqlPrefix, "with")
 }
 
 func isDDL(sql string) bool {
-	sqlPrefix := strings.ToLower(sql[:10])
+	sqlPrefix := getSqlPrefix(sql)
 	return strings.Contains(sqlPrefix, "create") || strings.Contains(sqlPrefix, "alter") ||
 		strings.Contains(sqlPrefix, "drop") || strings.Contains(sqlPrefix, "truncate") || strings.Contains(sqlPrefix, "rename")
+}
+
+func getSqlPrefix(sql string) string {
+	if len(sql) < 10 {
+		return strings.ToLower(sql)
+	}
+	return strings.ToLower(sql[:10])
 }

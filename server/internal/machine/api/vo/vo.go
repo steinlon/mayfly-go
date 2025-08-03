@@ -49,6 +49,7 @@ type MachineScriptVO struct {
 	Name        *string `json:"name"`
 	Script      *string `json:"script"`
 	Type        *int    `json:"type"`
+	Category    string  `json:"category"`
 	Description *string `json:"description"`
 	Params      *string `json:"params"`
 	MachineId   *uint64 `json:"machineId"`
@@ -111,10 +112,10 @@ type MachineCmdConfVO struct {
 	model.Model
 
 	Name     string              `json:"name"`
-	Cmds     model.Slice[string] `json:"cmds"`     // 命令配置
-	Status   int8                `json:"execCmds"` // 状态
-	Stratege string              `json:"stratege"` // 策略，空禁用
-	Remark   string              `json:"remark"`   // 备注
+	Cmds     model.Slice[string] `json:"cmds" gorm:"type:varchar"` // 命令配置，要加gorm标签才会正确解析model.Slice
+	Status   int8                `json:"execCmds"`                 // 状态
+	Stratege string              `json:"stratege"`                 // 策略，空禁用
+	Remark   string              `json:"remark"`                   // 备注
 }
 
 func (mcc *MachineCmdConfVO) GetRelateId() uint64 {

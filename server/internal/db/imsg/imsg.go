@@ -24,10 +24,7 @@ const (
 	LogDbRunSqlFile
 	LogDbDump
 
-	SqlScriptRunFail
-	SqlScriptRunSuccess
 	SqlScripRunProgress
-	DbDumpErr
 	ErrDbNameExist
 	ErrDbNotAccess
 
@@ -47,4 +44,7 @@ const (
 	LogDataSyncSave
 	LogDataSyncDelete
 	LogDataSyncChangeStatus
+	DataSyncSuccessMsg
+	DataSyncFailMsg
+	DataSyncingMsg
 )

@@ -4,7 +4,7 @@ import (
 	"mayfly-go/initialize"
 	"mayfly-go/internal/flow/api"
 	"mayfly-go/internal/flow/application"
-	"mayfly-go/internal/flow/infrastructure/persistence"
+	"mayfly-go/internal/flow/infra/persistence"
 )
 
 func init() {
@@ -13,4 +13,6 @@ func init() {
 		application.InitIoc()
 		api.InitIoc()
 	})
+
+	initialize.AddInitFunc(application.Init)
 }

@@ -7,7 +7,7 @@ import (
 	"mayfly-go/internal/machine/domain/entity"
 	"mayfly-go/internal/machine/domain/repository"
 	"mayfly-go/internal/machine/imsg"
-	"mayfly-go/internal/machine/infrastructure/cache"
+	"mayfly-go/internal/machine/infra/cache"
 	"mayfly-go/internal/machine/mcm"
 	tagapp "mayfly-go/internal/tag/application"
 	tagdto "mayfly-go/internal/tag/application/dto"
@@ -27,7 +27,7 @@ type Machine interface {
 	SaveMachine(ctx context.Context, param *dto.SaveMachine) error
 
 	// 测试机器连接
-	TestConn(me *entity.Machine, authCert *tagentity.ResourceAuthCert) error
+	TestConn(ctx context.Context, me *entity.Machine, authCert *tagentity.ResourceAuthCert) error
 
 	// 调整机器状态
 	ChangeStatus(ctx context.Context, id uint64, status int8) error
@@ -35,19 +35,19 @@ type Machine interface {
 	Delete(ctx context.Context, id uint64) error
 
 	// 分页获取机器信息列表
-	GetMachineList(condition *entity.MachineQuery, pageParam *model.PageParam, toEntity any, orderBy ...string) (*model.PageResult[any], error)
+	GetMachineList(condition *entity.MachineQuery, orderBy ...string) (*model.PageResult[*entity.Machine], error)
 
 	// 新建机器客户端连接（需手动调用Close）
-	NewCli(authCertName string) (*mcm.Cli, error)
+	NewCli(ctx context.Context, authCertName string) (*mcm.Cli, error)
 
 	// 获取已缓存的机器连接，若不存在则新建客户端连接并缓存，主要用于定时获取状态等（避免频繁创建连接）
-	GetCli(id uint64) (*mcm.Cli, error)
+	GetCli(ctx context.Context, id uint64) (*mcm.Cli, error)
 
 	// 根据授权凭证获取客户端连接
-	GetCliByAc(authCertName string) (*mcm.Cli, error)
+	GetCliByAc(ctx context.Context, authCertName string) (*mcm.Cli, error)
 
 	// 获取ssh隧道机器连接
-	GetSshTunnelMachine(id int) (*mcm.SshTunnelMachine, error)
+	GetSshTunnelMachine(ctx context.Context, id int) (*mcm.SshTunnelMachine, error)
 
 	// 定时更新机器状态信息
 	TimerUpdateStats()
@@ -71,8 +71,8 @@ type machineAppImpl struct {
 var _ (Machine) = (*machineAppImpl)(nil)
 
 // 分页获取机器信息列表
-func (m *machineAppImpl) GetMachineList(condition *entity.MachineQuery, pageParam *model.PageParam, toEntity any, orderBy ...string) (*model.PageResult[any], error) {
-	return m.GetRepo().GetMachineList(condition, pageParam, toEntity, orderBy...)
+func (m *machineAppImpl) GetMachineList(condition *entity.MachineQuery, orderBy ...string) (*model.PageResult[*entity.Machine], error) {
+	return m.GetRepo().GetMachineList(condition, orderBy...)
 }
 
 func (m *machineAppImpl) SaveMachine(ctx context.Context, param *dto.SaveMachine) error {
@@ -159,7 +159,7 @@ func (m *machineAppImpl) SaveMachine(ctx context.Context, param *dto.SaveMachine
 	})
 }
 
-func (m *machineAppImpl) TestConn(me *entity.Machine, authCert *tagentity.ResourceAuthCert) error {
+func (m *machineAppImpl) TestConn(ctx context.Context, me *entity.Machine, authCert *tagentity.ResourceAuthCert) error {
 	me.Id = 0
 
 	authCert, err := m.resourceAuthCertApp.GetRealAuthCert(authCert)
@@ -171,7 +171,7 @@ func (m *machineAppImpl) TestConn(me *entity.Machine, authCert *tagentity.Resour
 	if err != nil {
 		return err
 	}
-	cli, err := mi.Conn()
+	cli, err := mi.Conn(ctx)
 	if err != nil {
 		return err
 	}
@@ -224,35 +224,30 @@ func (m *machineAppImpl) Delete(ctx context.Context, id uint64) error {
 		})
 }
 
-func (m *machineAppImpl) NewCli(authCertName string) (*mcm.Cli, error) {
+func (m *machineAppImpl) NewCli(ctx context.Context, authCertName string) (*mcm.Cli, error) {
 	if mi, err := m.ToMachineInfoByAc(authCertName); err != nil {
 		return nil, err
 	} else {
-		return mi.Conn()
+		return mi.Conn(ctx)
 	}
 }
 
-func (m *machineAppImpl) GetCliByAc(authCertName string) (*mcm.Cli, error) {
-	return mcm.GetMachineCli(authCertName, func(ac string) (*mcm.MachineInfo, error) {
+func (m *machineAppImpl) GetCliByAc(ctx context.Context, authCertName string) (*mcm.Cli, error) {
+	return mcm.GetMachineCli(ctx, authCertName, func(ac string) (*mcm.MachineInfo, error) {
 		return m.ToMachineInfoByAc(ac)
 	})
 }
 
-func (m *machineAppImpl) GetCli(machineId uint64) (*mcm.Cli, error) {
-	cli, err := mcm.GetMachineCliById(machineId)
-	if err == nil {
-		return cli, nil
-	}
-
+func (m *machineAppImpl) GetCli(ctx context.Context, machineId uint64) (*mcm.Cli, error) {
 	_, authCert, err := m.getMachineAndAuthCert(machineId)
 	if err != nil {
 		return nil, err
 	}
-	return m.GetCliByAc(authCert.Name)
+	return m.GetCliByAc(ctx, authCert.Name)
 }
 
-func (m *machineAppImpl) GetSshTunnelMachine(machineId int) (*mcm.SshTunnelMachine, error) {
-	return mcm.GetSshTunnelMachine(machineId, func(mid uint64) (*mcm.MachineInfo, error) {
+func (m *machineAppImpl) GetSshTunnelMachine(ctx context.Context, machineId int) (*mcm.SshTunnelMachine, error) {
+	return mcm.GetSshTunnelMachine(ctx, machineId, func(mid uint64) (*mcm.MachineInfo, error) {
 		return m.ToMachineInfoById(mid)
 	})
 }
@@ -269,7 +264,9 @@ func (m *machineAppImpl) TimerUpdateStats() {
 					}
 				}()
 				logx.Debugf("time to get machine [id=%d] status information start", mid)
-				cli, err := m.GetCli(mid)
+				ctx, cancelFunc := context.WithCancel(context.Background())
+				defer cancelFunc()
+				cli, err := m.GetCli(ctx, mid)
 				if err != nil {
 					logx.Errorf("failed to get machine [id=%d] status information periodically, failed to get machine cli: %s", mid, err.Error())
 					return

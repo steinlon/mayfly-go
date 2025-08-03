@@ -1,5 +1,4 @@
 import Api from '@/common/Api';
-import config from '@/common/config';
 import { joinClientParams } from '@/common/request';
 
 export const machineApi = {
@@ -23,6 +22,7 @@ export const machineApi = {
     // 删除机器
     del: Api.newDelete('/machines/{id}'),
     scripts: Api.newGet('/machines/{machineId}/scripts'),
+    scriptCategorys: Api.newGet('/machines/scripts/categorys'),
     runScript: Api.newGet('/machines/scripts/{scriptId}/{ac}/run'),
     saveScript: Api.newPost('/machines/{machineId}/scripts'),
     deleteScript: Api.newDelete('/machines/{machineId}/scripts/{scriptId}'),
@@ -66,9 +66,9 @@ export const cmdConfApi = {
 };
 
 export function getMachineTerminalSocketUrl(authCertName: any) {
-    return `${config.baseWsUrl}/machines/terminal/${authCertName}?${joinClientParams()}`;
+    return `/machines/terminal/${authCertName}`;
 }
 
 export function getMachineRdpSocketUrl(authCertName: any) {
-    return `${config.baseWsUrl}/machines/rdp/${authCertName}`;
+    return `/machines/rdp/${authCertName}`;
 }

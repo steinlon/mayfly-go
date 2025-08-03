@@ -17,4 +17,15 @@ const (
 	LogMsgTmplSave
 	LogMsgTmplDelete
 	LogMsgTmplSend
+
+	LoginMsg
+
+	MachineFileUploadSuccessMsg
+	MachineFileUploadFailMsg
+
+	DbDumpFailMsg
+	SqlScriptRunFailMsg
+	SqlScriptRunSuccessMsg
+
+	FlowUserTaskTodoMsg
 )

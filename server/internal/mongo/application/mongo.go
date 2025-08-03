@@ -20,7 +20,7 @@ type Mongo interface {
 	base.App[*entity.Mongo]
 
 	// 分页获取机器脚本信息列表
-	GetPageList(condition *entity.MongoQuery, pageParam *model.PageParam, toEntity any, orderBy ...string) (*model.PageResult[any], error)
+	GetPageList(condition *entity.MongoQuery, orderBy ...string) (*model.PageResult[*entity.Mongo], error)
 
 	TestConn(entity *entity.Mongo) error
 
@@ -31,7 +31,7 @@ type Mongo interface {
 
 	// 获取mongo连接实例
 	// @param id mongo id
-	GetMongoConn(id uint64) (*mgm.MongoConn, error)
+	GetMongoConn(ctx context.Context, id uint64) (*mgm.MongoConn, error)
 }
 
 type mongoAppImpl struct {
@@ -40,9 +40,11 @@ type mongoAppImpl struct {
 	tagTreeApp tagapp.TagTree `inject:"T"`
 }
 
+var _ Mongo = (*mongoAppImpl)(nil)
+
 // 分页获取数据库信息列表
-func (d *mongoAppImpl) GetPageList(condition *entity.MongoQuery, pageParam *model.PageParam, toEntity any, orderBy ...string) (*model.PageResult[any], error) {
-	return d.GetRepo().GetList(condition, pageParam, toEntity, orderBy...)
+func (d *mongoAppImpl) GetPageList(condition *entity.MongoQuery, orderBy ...string) (*model.PageResult[*entity.Mongo], error) {
+	return d.GetRepo().GetList(condition, orderBy...)
 }
 
 func (d *mongoAppImpl) Delete(ctx context.Context, id uint64) error {
@@ -129,8 +131,8 @@ func (d *mongoAppImpl) SaveMongo(ctx context.Context, m *entity.Mongo, tagCodePa
 	})
 }
 
-func (d *mongoAppImpl) GetMongoConn(id uint64) (*mgm.MongoConn, error) {
-	return mgm.GetMongoConn(id, func() (*mgm.MongoInfo, error) {
+func (d *mongoAppImpl) GetMongoConn(ctx context.Context, id uint64) (*mgm.MongoConn, error) {
+	return mgm.GetMongoConn(ctx, id, func() (*mgm.MongoInfo, error) {
 		me, err := d.GetById(id)
 		if err != nil {
 			return nil, errorx.NewBiz("mongo not found")

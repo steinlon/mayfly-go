@@ -16,6 +16,7 @@ export default {
         dbFilterPlaceholder: 'DB name: Input filterable',
         sqlRecord: 'SQL records',
         dump: 'Export',
+        dbDumpFail: 'DB export failed',
         dumpContent: 'Export Content',
         structure: 'Structure',
         data: 'Data',
@@ -55,6 +56,8 @@ export default {
         execSuccess: 'Successful execution',
         execFail: 'Execution failure',
         sqlScriptRun: 'Run SQL Script',
+        sqlScriptRunSuccess: 'SQL script executed successfully',
+        sqlScriptRunFail: 'SQL script execution failed',
         saveSql: 'Save SQL',
         execInfo: 'Execution info',
         result: 'Result',
@@ -218,5 +221,12 @@ export default {
 
         running: 'Running',
         waitRun: 'Wait Run',
+    },
+    es: {
+        keywordPlaceholder: 'host / name / code',
+        port: 'Port',
+        acName: 'Credential',
+        dbInst: 'Es Instance',
+        connSuccess: 'be connected successfully',
     },
 };

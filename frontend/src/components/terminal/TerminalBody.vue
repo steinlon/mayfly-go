@@ -22,6 +22,7 @@ import { useDebounceFn, useEventListener, useIntervalFn } from '@vueuse/core';
 import themes from './themes';
 import { TrzszFilter } from 'trzsz';
 import { useI18n } from 'vue-i18n';
+import { createWebSocket } from '@/common/request';
 
 const { t } = useI18n();
 
@@ -91,7 +92,7 @@ onBeforeUnmount(() => {
     close();
 });
 
-function init() {
+const init = () => {
     state.status = TerminalStatus.NoConnected;
     if (term) {
         console.log('重新连接...');
@@ -100,9 +101,9 @@ function init() {
     nextTick(() => {
         initTerm();
     });
-}
+};
 
-async function initTerm() {
+const initTerm = async () => {
     term = new Terminal({
         fontSize: themeConfig.value.terminalFontSize || 15,
         fontWeight: themeConfig.value.terminalFontWeight || 'normal',
@@ -124,7 +125,7 @@ async function initTerm() {
     // 注册窗口大小监听器
     useEventListener('resize', useDebounceFn(fitTerminal, 400));
 
-    initSocket();
+    await initSocket();
     // 注册其他插件
     loadAddon();
 
@@ -138,43 +139,41 @@ async function initTerm() {
 
         return true;
     });
-}
+};
 
-function initSocket() {
+const initSocket = async () => {
     if (!props.socketUrl) {
         return;
     }
-    socket = new WebSocket(`${props.socketUrl}&rows=${term?.rows}&cols=${term?.cols}`);
-    // 监听socket连接
-    socket.onopen = () => {
-        // 注册心跳
-        useIntervalFn(sendPing, 15000);
-
-        state.status = TerminalStatus.Connected;
-
-        focus();
-        fitTerminal();
-
-        // 如果有初始要执行的命令，则发送执行命令
-        if (props.cmd) {
-            sendCmd(props.cmd + ' \r');
-        }
-    };
-
-    // 监听socket错误信息
-    socket.onerror = (e: Event) => {
+    try {
+        socket = await createWebSocket(`${props.socketUrl}?rows=${term?.rows}&cols=${term?.cols}`);
+    } catch (e) {
         term.writeln(`\r\n\x1b[31m${t('components.terminal.connErrMsg')}`);
         state.status = TerminalStatus.Error;
         console.log('连接错误', e);
-    };
+        return;
+    }
+
+    // 注册心跳
+    useIntervalFn(sendPing, 15000);
+
+    state.status = TerminalStatus.Connected;
+
+    focus();
+    fitTerminal();
+
+    // 如果有初始要执行的命令，则发送执行命令
+    if (props.cmd) {
+        sendData(props.cmd + ' \r');
+    }
 
     socket.onclose = (e: CloseEvent) => {
         console.log('terminal socket close...', e.reason);
         state.status = TerminalStatus.Disconnected;
     };
-}
+};
 
-function loadAddon() {
+const loadAddon = () => {
     // 注册搜索组件
     const searchAddon = new SearchAddon();
     state.addon.search = searchAddon;
@@ -191,7 +190,7 @@ function loadAddon() {
         // write the server output to the terminal
         writeToTerminal: (data: any) => term.write(typeof data === 'string' ? data : new Uint8Array(data)),
         // send the user input to the server
-        sendToServer: sendCmd,
+        sendToServer: sendData,
         // the terminal columns
         terminalColumns: term.cols,
         // there is a windows shell
@@ -217,7 +216,7 @@ function loadAddon() {
             .then(() => console.log('upload success'))
             .catch((err: any) => console.log(err));
     });
-}
+};
 
 // 写入内容至终端
 const write2Term = (data: any) => {
@@ -265,28 +264,28 @@ enum MsgType {
     Ping = 3,
 }
 
-const send = (msg: any) => {
-    state.status == TerminalStatus.Connected && socket?.send(msg);
+const send2Socket = (data: any) => {
+    state.status == TerminalStatus.Connected && socket?.send(data);
 };
 
 const sendResize = (cols: number, rows: number) => {
-    send(`${MsgType.Resize}|${rows}|${cols}`);
+    send2Socket(`${MsgType.Resize}|${rows}|${cols}`);
 };
 
 const sendPing = () => {
-    send(`${MsgType.Ping}|ping`);
+    send2Socket(`${MsgType.Ping}|ping`);
 };
 
-function sendCmd(key: any) {
-    send(`${MsgType.Data}|${key}`);
-}
+const sendData = (key: any) => {
+    send2Socket(`${MsgType.Data}|${key}`);
+};
 
-function closeSocket() {
+const closeSocket = () => {
     // 关闭 websocket
     socket && socket.readyState === 1 && socket.close();
-}
+};
 
-function close() {
+const close = () => {
     console.log('in terminal body close');
     closeSocket();
     if (term) {
@@ -295,7 +294,7 @@ function close() {
         state.addon.weblinks.dispose();
         term.dispose();
     }
-}
+};
 
 const getStatus = (): TerminalStatus => {
     return state.status;
