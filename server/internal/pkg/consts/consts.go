@@ -9,6 +9,7 @@ const (
 	ResourceTypeMongo      int8 = 4
 	ResourceTypeAuthCert   int8 = 5
 	ResourceTypeEsInstance int8 = 6
+	ResourceTypeContainer  int8 = 7
 
 	// imsg起始编号
 	ImsgNumSys     = 10000
@@ -21,4 +22,5 @@ const (
 	ImsgNumMongo   = 80000
 	ImsgNumMsg     = 90000
 	ImsgNumEs      = 100000
+	ImsgNumDocker  = 110000
 )

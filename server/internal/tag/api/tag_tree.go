@@ -161,8 +161,8 @@ func (p *TagTree) CountTagResource(rc *req.Ctx) {
 		CodePathLikes: collx.AsArray(tagPath),
 	}).GetCodePaths()...)
 
-	dbCodes := entity.GetCodesByCodePaths(entity.TagTypeDb, p.tagTreeApp.GetAccountTags(accountId, &entity.TagTreeQuery{
-		Types:         collx.AsArray(entity.TagTypeDb),
+	dbCodes := entity.GetCodesByCodePaths(entity.TagTypeDbInstance, p.tagTreeApp.GetAccountTags(accountId, &entity.TagTreeQuery{
+		TypePaths:     collx.AsArray(entity.NewTypePaths(entity.TagTypeDbInstance, entity.TagTypeAuthCert)),
 		CodePathLikes: collx.AsArray(tagPath),
 	}).GetCodePaths()...)
 
@@ -181,6 +181,10 @@ func (p *TagTree) CountTagResource(rc *req.Ctx) {
 		}).GetCodes()),
 		"mongo": len(p.tagTreeApp.GetAccountTags(accountId, &entity.TagTreeQuery{
 			Types:         collx.AsArray(entity.TagTypeMongo),
+			CodePathLikes: collx.AsArray(tagPath),
+		}).GetCodes()),
+		"container": len(p.tagTreeApp.GetAccountTags(accountId, &entity.TagTreeQuery{
+			Types:         collx.AsArray(entity.TagTypeContainer),
 			CodePathLikes: collx.AsArray(tagPath),
 		}).GetCodes()),
 	}

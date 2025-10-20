@@ -88,7 +88,7 @@
                             </template>
 
                             <el-row>
-                                <span v-if="dt.hasUpdatedFileds" class="mt-1">
+                                <span v-if="dt.hasUpdatedFields" class="mt-1">
                                     <span>
                                         <el-link type="success" underline="never" @click="submitUpdateFields(dt)"
                                             ><span style="font-size: 12px">{{ $t('common.submit') }}</span></el-link
@@ -110,6 +110,7 @@
                                 :data="dt.data"
                                 :table="dt.table"
                                 :columns="dt.tableColumn"
+                                :column-more-actions="['fixed']"
                                 :loading="dt.loading"
                                 :abort-fn="dt.abortFn"
                                 :height="tableDataHeight"
@@ -199,7 +200,7 @@ class ExecResTab {
     /**
      * 是否有更新字段
      */
-    hasUpdatedFileds: boolean;
+    hasUpdatedFields: boolean;
 
     errorMsg: string;
 
@@ -305,13 +306,8 @@ const getKey = () => {
  * 执行sql
  */
 const onRunSql = async (newTab = false) => {
-    // 没有选中的文本，则为全部文本
-    let sql = getSql() as string;
-    notBlank(sql && sql.trim(), t('db.noSelctRunSqlTips'));
-    // 去除字符串前的空格、换行等
-    sql = sql.replace(/(^\s*)/g, '');
-
-    const sqls = splitSql(sql);
+    const sqls = getSql();
+    notBlank(sqls, t('db.noSelectRunSqlMsg'));
 
     if (sqls.length == 1) {
         const oneSql = sqls[0];
@@ -522,11 +518,56 @@ const runSql = async (sql: string, remark = '', newTab = false) => {
     }
 };
 
-function splitSql(sql: string, delimiter: string = ';') {
+/**
+ * 获取sql，如果有鼠标选中，则返回选中内容，否则返回当前光标附近的sql
+ */
+const getSql = (): string[] => {
+    // 编辑器还没初始化
+    if (!monacoEditor?.getModel()) {
+        return [];
+    }
+
+    let sql = '' as string | undefined;
+    // 选择选中的sql
+    let selection = monacoEditor.getSelection();
+    if (selection) {
+        sql = monacoEditor.getModel()?.getValueInRange(selection);
+        sql = sql?.replace(/(^\s*)/g, '');
+    }
+
+    // 如果有选中的内容且不为空，直接返回
+    if (sql && sql.trim()) {
+        return splitSqlStatements(sql).map((x) => x.text);
+    }
+
+    // 没有选中任何内容时，自动选择当前光标所在的SQL语句行
+    const currentPosition = monacoEditor.getPosition();
+    if (currentPosition) {
+        const model = monacoEditor.getModel();
+        if (model) {
+            const fullSql = model.getValue();
+            const sqlStatement = getCurrentStatement(fullSql, currentPosition, model);
+            if (sqlStatement) {
+                return [sqlStatement];
+            }
+        }
+    }
+
+    return [];
+};
+
+/**
+ * 通用SQL解析器，用于提取SQL语句及其位置信息
+ * @param sql 完整的SQL文本
+ * @param delimiter SQL语句分隔符，默认为分号
+ * @param withPosition 是否需要返回位置信息
+ */
+function splitSqlStatements(sql: string, delimiter: string = ';') {
     let state = 'normal';
     let buffer = '';
     let result = [];
     let inString = null; // 用于记录当前字符串的引号类型（' 或 "）
+    let startPos = 0;
 
     for (let i = 0; i < sql.length; i++) {
         const char = sql[i];
@@ -535,9 +576,11 @@ function splitSql(sql: string, delimiter: string = ';') {
         if (state === 'normal') {
             if (char === '-' && nextChar === '-') {
                 state = 'singleLineComment';
+                // buffer += char + nextChar;
                 i++; // 跳过下一个字符
             } else if (char === '/' && nextChar === '*') {
                 state = 'multiLineComment';
+                // buffer += char + nextChar;
                 i++; // 跳过下一个字符
             } else if (char === "'" || char === '"') {
                 state = 'string';
@@ -545,9 +588,14 @@ function splitSql(sql: string, delimiter: string = ';') {
                 buffer += char;
             } else if (char === delimiter) {
                 if (buffer.trim()) {
-                    result.push(buffer.trim());
+                    result.push({
+                        text: buffer.trim(),
+                        start: startPos,
+                        end: i,
+                    });
                 }
                 buffer = '';
+                startPos = i + 1;
             } else {
                 buffer += char;
             }
@@ -562,45 +610,70 @@ function splitSql(sql: string, delimiter: string = ';') {
                 inString = null;
             }
         } else if (state === 'singleLineComment') {
+            // buffer += char;
             if (char === '\n') {
                 state = 'normal';
             }
         } else if (state === 'multiLineComment') {
+            // buffer += char;
             if (char === '*' && nextChar === '/') {
+                buffer += nextChar;
                 state = 'normal';
                 i++; // 跳过下一个字符
             }
         }
     }
 
+    // 处理最后一个语句（没有以分号结尾的情况）
     if (buffer.trim()) {
-        result.push(buffer.trim());
+        result.push({
+            text: buffer.trim(),
+            start: startPos,
+            end: sql.length,
+        });
     }
 
     return result;
 }
 
 /**
- * 获取sql，如果有鼠标选中，则返回选中内容，否则返回输入框内所有内容
+ * 获取光标所在的SQL语句
+ * @param fullSql 完整的SQL文本
+ * @param position 光标位置
+ * @param model Monaco编辑器模型
  */
-const getSql = () => {
-    let res = '' as string | undefined;
-    // 编辑器还没初始化
-    if (!monacoEditor?.getModel()) {
-        return res;
-    }
-    // 选择选中的sql
-    let selection = monacoEditor.getSelection();
-    if (selection) {
-        res = monacoEditor.getModel()?.getValueInRange(selection);
+function getCurrentStatement(fullSql: string, position: monaco.Position, model: monaco.editor.ITextModel): string | null {
+    // 使用通用SQL解析器来分割SQL语句，并记录每个语句的位置
+    const statements: { text: string; start: number; end: number }[] = splitSqlStatements(fullSql);
+
+    // 根据光标位置找到对应的SQL语句
+    if (position) {
+        const offset = model.getOffsetAt(position);
+
+        // 遍历所有语句，找到光标所在的语句
+        for (let i = 0; i < statements.length; i++) {
+            const stmt = statements[i];
+            // 光标在语句范围内（包括末尾分号）
+            if (offset >= stmt.start && offset <= stmt.end) {
+                return stmt.text;
+            }
+            // 光标在语句分号后一个位置
+            if (offset === stmt.end + 1) {
+                return stmt.text;
+            }
+        }
+
+        // 如果光标处没有SQL，则执行光标前的最后一个SQL
+        for (let i = statements.length - 1; i >= 0; i--) {
+            const stmt = statements[i];
+            if (offset > stmt.end) {
+                return stmt.text;
+            }
+        }
     }
 
-    // 整个编辑器的sql
-    if (!res) {
-        return monacoEditor.getModel()?.getValue();
-    }
-    return res;
-};
+    return null;
+}
 
 const saveSql = async () => {
     const sql = monacoEditor.getModel()?.getValue();
@@ -710,7 +783,7 @@ const getUploadSqlFileUrl = () => {
 
 const changeUpdatedField = (updatedFields: any, dt: ExecResTab) => {
     // 如果存在要更新字段，则显示提交和取消按钮
-    dt.hasUpdatedFileds = updatedFields && updatedFields.size > 0;
+    dt.hasUpdatedFields = updatedFields && updatedFields.size > 0;
 };
 
 /**
